@@ -142,6 +142,7 @@ export default function Branches() {
       name: branch.name,
       location: branch.location || "",
       phone: branch.phone || "",
+      whatsapp_chat_id: branch.whatsapp_chat_id || null,
     });
     setIsEditDialogOpen(true);
   };
