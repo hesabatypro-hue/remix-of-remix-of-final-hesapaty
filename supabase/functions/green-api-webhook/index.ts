@@ -324,20 +324,42 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Rate limit exceeded" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Handle quota exceeded
+    // Handle quota exceeded — treat as SOFT warning:
+    // Green API sometimes emits quotaExceeded transiently (e.g. per-minute burst
+    // on dev plans) even while messages continue to flow. Do NOT flip the
+    // connection to `disconnected` — that scares the user and hides the real
+    // state. Just log + dedupe the user notification to once per 24h.
     if (body.typeWebhook === "quotaExceeded") {
-      await sb.from("whatsapp_connections").update({ status: "disconnected", updated_at: new Date().toISOString() }).eq("id", connection.id);
-      const { data: members } = await sb.from("user_roles").select("user_id").eq("organization_id", connection.organization_id);
-      if (members?.length) {
-        await sb.from("notifications").insert(members.map((m: any) => ({
-          user_id: m.user_id, organization_id: connection.organization_id,
-          title: "⚠️ انتهت حصة WhatsApp",
-          message: `انتهت حصة Green API للفرع "${connection.branches?.name}". يرجى تجديد الاشتراك.`,
-          type: "quota_exceeded", link: "/whatsapp",
-        })));
+      await logToSystem(sb, "warn", `Green API quotaExceeded (soft) for instance ${instanceId}`, { branch: connection.branches?.name }, connection.organization_id, connection.id);
+
+      // Dedupe: only notify if no quota_exceeded notification in last 24h for this org
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent } = await sb
+        .from("notifications")
+        .select("id")
+        .eq("organization_id", connection.organization_id)
+        .eq("type", "quota_exceeded")
+        .gte("created_at", dayAgo)
+        .limit(1);
+
+      if (!recent || recent.length === 0) {
+        const { data: members } = await sb
+          .from("user_roles")
+          .select("user_id")
+          .eq("organization_id", connection.organization_id)
+          .in("role", ["owner", "admin"]);
+        if (members?.length) {
+          await sb.from("notifications").insert(members.map((m: any) => ({
+            user_id: m.user_id, organization_id: connection.organization_id,
+            title: "⚠️ تحذير: حصة Green API",
+            message: `Green API أبلغت عن تجاوز مؤقت للحصة على فرع "${connection.branches?.name}". النظام لا يزال يعمل — إذا تكرر التنبيه بكثرة يرجى مراجعة اشتراك Green API.`,
+            type: "quota_exceeded", link: "/whatsapp",
+          })));
+        }
       }
-      return new Response(JSON.stringify({ warning: "quota_exceeded" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ warning: "quota_exceeded_soft" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     if (body.typeWebhook !== "incomingMessageReceived") {
       return new Response(JSON.stringify({ status: "ignored" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
