@@ -1,0 +1,1 @@
+UPDATE public.whatsapp_connections SET status = 'connected', updated_at = now() WHERE status = 'disconnected';
