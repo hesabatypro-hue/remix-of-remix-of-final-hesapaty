@@ -324,40 +324,94 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Rate limit exceeded" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Handle quota exceeded — treat as SOFT warning:
-    // Green API sometimes emits quotaExceeded transiently (e.g. per-minute burst
-    // on dev plans) even while messages continue to flow. Do NOT flip the
-    // connection to `disconnected` — that scares the user and hides the real
-    // state. Just log + dedupe the user notification to once per 24h.
+    // Handle quota exceeded — SOFT warning + AUTO-RECOVERY of missed messages
     if (body.typeWebhook === "quotaExceeded") {
-      await logToSystem(sb, "warn", `Green API quotaExceeded (soft) for instance ${instanceId}`, { branch: connection.branches?.name }, connection.organization_id, connection.id);
+      await logToSystem(sb, "warn", `Green API quotaExceeded — starting recovery for instance ${instanceId}`, { branch: connection.branches?.name }, connection.organization_id, connection.id);
 
-      // Dedupe: only notify if no quota_exceeded notification in last 24h for this org
+      const { data: creds } = await sb.from("whatsapp_credentials")
+        .select("green_api_token").eq("connection_id", connection.id).maybeSingle();
+      const token = creds?.green_api_token;
+
+      let recovered = 0;
+      if (token) {
+        try {
+          const res = await fetch(`https://api.green-api.com/waInstance${instanceId}/lastIncomingMessages/${token}?minutes=60`);
+          if (res.ok) {
+            const msgs: any[] = await res.json();
+            for (const m of (Array.isArray(msgs) ? msgs : [])) {
+              const mid = m?.idMessage;
+              const mChat = m?.chatId || "";
+              const mSender = m?.senderId || "";
+              const mType = m?.typeMessage || "unknown";
+              const mDown = m?.downloadUrl || null;
+              const mCaption = m?.caption || m?.textMessage || null;
+              if (!isValidMsgId(mid) || !isValidPhone(mSender)) continue;
+
+              const { data: dup } = await sb.from("whatsapp_messages").select("id").eq("message_id", mid).limit(1);
+              if (dup && dup.length > 0) continue;
+
+              if (mChat.endsWith("@g.us")) {
+                const isMonitored = connection.monitored_chat_id && mChat === connection.monitored_chat_id;
+                if (!isMonitored) {
+                  const { data: bm } = await sb.from("branches").select("id")
+                    .eq("organization_id", connection.organization_id)
+                    .eq("whatsapp_chat_id", mChat)
+                    .eq("is_deleted", false).eq("is_active", true)
+                    .limit(1).maybeSingle();
+                  if (!bm) continue;
+                }
+              }
+
+              const isImg = mType === "imageMessage";
+              await sb.from("whatsapp_messages").insert({
+                whatsapp_connection_id: connection.id,
+                organization_id: connection.organization_id,
+                message_id: mid,
+                from_number: String(mSender).substring(0, 50),
+                message_type: String(mType).substring(0, 50),
+                content: mCaption ? String(mCaption).substring(0, 10000) : (mChat ? `chatId:${mChat}` : null),
+                chat_id: mChat ? String(mChat).substring(0, 100) : null,
+                media_url: mDown ? String(mDown).substring(0, 1000) : null,
+                processed: !isImg,
+              });
+              recovered++;
+            }
+
+            if (recovered > 0) {
+              const supabaseUrl = Deno.env.get("SUPABASE_URL");
+              const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+              if (supabaseUrl && serviceKey) {
+                fetch(`${supabaseUrl}/functions/v1/process-receipt`, {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ trigger: "quota-recovery" }),
+                }).catch(() => {});
+              }
+              await logToSystem(sb, "info", `Recovered ${recovered} missed message(s) after quotaExceeded`, { recovered }, connection.organization_id, connection.id);
+            }
+          }
+        } catch (recErr: any) {
+          await logToSystem(sb, "error", `Recovery pull failed: ${recErr?.message}`, {}, connection.organization_id, connection.id);
+        }
+      }
+
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: recent } = await sb
-        .from("notifications")
-        .select("id")
-        .eq("organization_id", connection.organization_id)
-        .eq("type", "quota_exceeded")
-        .gte("created_at", dayAgo)
-        .limit(1);
-
+      const { data: recent } = await sb.from("notifications").select("id")
+        .eq("organization_id", connection.organization_id).eq("type", "quota_exceeded")
+        .gte("created_at", dayAgo).limit(1);
       if (!recent || recent.length === 0) {
-        const { data: members } = await sb
-          .from("user_roles")
-          .select("user_id")
-          .eq("organization_id", connection.organization_id)
-          .in("role", ["owner", "admin"]);
+        const { data: members } = await sb.from("user_roles").select("user_id")
+          .eq("organization_id", connection.organization_id).in("role", ["owner", "admin"]);
         if (members?.length) {
           await sb.from("notifications").insert(members.map((m: any) => ({
             user_id: m.user_id, organization_id: connection.organization_id,
-            title: "⚠️ تحذير: حصة Green API",
-            message: `Green API أبلغت عن تجاوز مؤقت للحصة على فرع "${connection.branches?.name}". النظام لا يزال يعمل — إذا تكرر التنبيه بكثرة يرجى مراجعة اشتراك Green API.`,
+            title: "⚠️ حصة Green API — تم الاسترداد التلقائي",
+            message: `Green API تجاوزت حصّة تسليم الويبهوكس مؤقتاً. تم استرداد ${recovered} رسالة فائتة تلقائياً. النظام يعمل بشكل طبيعي.`,
             type: "quota_exceeded", link: "/whatsapp",
           })));
         }
       }
-      return new Response(JSON.stringify({ warning: "quota_exceeded_soft" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ warning: "quota_exceeded_soft", recovered }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
 
