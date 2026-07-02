@@ -47,6 +47,7 @@ import { useOrganizationLimits } from "@/hooks/useOrganizationLimits";
 import { LimitBadge } from "@/components/limits/LimitBadge";
 import { UpgradePrompt } from "@/components/limits/UpgradePrompt";
 import { useToast } from "@/hooks/use-toast";
+import { BranchGroupPicker } from "@/components/branches/BranchGroupPicker";
 
 export default function Branches() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,7 +55,7 @@ export default function Branches() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
-  const [formData, setFormData] = useState({ name: "", location: "", phone: "" });
+  const [formData, setFormData] = useState<{ name: string; location: string; phone: string; whatsapp_chat_id: string | null }>({ name: "", location: "", phone: "", whatsapp_chat_id: null });
 
   const { branches, isLoading, addBranch, updateBranch, deleteBranch } = useBranches();
   const { limits, canAddBranch, refetch: refetchLimits } = useOrganizationLimits();
