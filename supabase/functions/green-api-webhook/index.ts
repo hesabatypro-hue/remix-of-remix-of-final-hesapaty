@@ -410,6 +410,7 @@ serve(async (req) => {
         instanceId: String(instanceId),
         senderRaw: fromNumber,
         text: content,
+        chatId: chatId,
       });
       if (cmd?.handled) {
         return new Response(JSON.stringify({ status: "command_handled", intent: cmd.intent }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
