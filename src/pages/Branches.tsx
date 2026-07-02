@@ -210,6 +210,10 @@ export default function Branches() {
                   dir="ltr"
                 />
               </div>
+              <BranchGroupPicker
+                value={formData.whatsapp_chat_id}
+                onChange={(chatId) => setFormData({ ...formData, whatsapp_chat_id: chatId })}
+              />
               <Button 
                 onClick={handleAddBranch} 
                 className="w-full"
