@@ -1,0 +1,36 @@
+# Netlify configuration — Hisabaty / Suda Technologies
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# ─── Security Headers ──────────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Prevent clickjacking
+    X-Frame-Options = "DENY"
+
+    # Prevent MIME type sniffing
+    X-Content-Type-Options = "nosniff"
+
+    # XSS Protection (legacy browsers)
+    X-XSS-Protection = "1; mode=block"
+
+    # Control referrer information
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+    # Permissions Policy — disable unused browser features
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # HTTP Strict Transport Security — force HTTPS for 1 year
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+    # Content Security Policy
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co https://api.green-api.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.green-api.com https://graph.facebook.com; frame-ancestors 'none';"
+
+# ─── SPA Routing ───────────────────────────────────────────────────────────────
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

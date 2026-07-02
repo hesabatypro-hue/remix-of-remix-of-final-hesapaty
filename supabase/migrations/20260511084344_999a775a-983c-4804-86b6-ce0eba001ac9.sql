@@ -1,0 +1,1 @@
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS investment_enabled boolean NOT NULL DEFAULT false;
