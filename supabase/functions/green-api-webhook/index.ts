@@ -356,9 +356,30 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Invalid sender" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Group filter: if monitored_chat_id is set, only accept messages from that chat
-    if (connection.monitored_chat_id && chatId && chatId !== connection.monitored_chat_id) {
-      return new Response(JSON.stringify({ status: "filtered_group" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // 🧠 SMART MULTI-BRANCH FILTER
+    // Accept messages from:
+    //   (a) the primary monitored_chat_id (legacy single-group setup), OR
+    //   (b) ANY group linked to a branch in this org via branches.whatsapp_chat_id,
+    //   (c) private DMs (@c.us) — needed for admin summary commands.
+    // Reject unrelated groups (@g.us) that aren't linked to any branch.
+    if (chatId && chatId.endsWith("@g.us")) {
+      const isMonitored = connection.monitored_chat_id && chatId === connection.monitored_chat_id;
+      let isBranchGroup = false;
+      if (!isMonitored) {
+        const { data: branchMatch } = await sb
+          .from("branches")
+          .select("id")
+          .eq("organization_id", connection.organization_id)
+          .eq("whatsapp_chat_id", chatId)
+          .eq("is_deleted", false)
+          .eq("is_active", true)
+          .limit(1)
+          .maybeSingle();
+        isBranchGroup = !!branchMatch;
+      }
+      if (!isMonitored && !isBranchGroup) {
+        return new Response(JSON.stringify({ status: "filtered_group" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // Deduplication

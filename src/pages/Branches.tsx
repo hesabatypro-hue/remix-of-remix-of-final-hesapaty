@@ -15,6 +15,7 @@ import {
   Power,
   Loader2,
   Plus as PlusIcon,
+  Users,
 } from "lucide-react";
 import { BranchesSkeleton } from "@/components/ui/page-skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -47,6 +48,7 @@ import { useOrganizationLimits } from "@/hooks/useOrganizationLimits";
 import { LimitBadge } from "@/components/limits/LimitBadge";
 import { UpgradePrompt } from "@/components/limits/UpgradePrompt";
 import { useToast } from "@/hooks/use-toast";
+import { BranchGroupPicker } from "@/components/branches/BranchGroupPicker";
 
 export default function Branches() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,7 +56,7 @@ export default function Branches() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
-  const [formData, setFormData] = useState({ name: "", location: "", phone: "" });
+  const [formData, setFormData] = useState<{ name: string; location: string; phone: string; whatsapp_chat_id: string | null }>({ name: "", location: "", phone: "", whatsapp_chat_id: null });
 
   const { branches, isLoading, addBranch, updateBranch, deleteBranch } = useBranches();
   const { limits, canAddBranch, refetch: refetchLimits } = useOrganizationLimits();
@@ -81,10 +83,11 @@ export default function Branches() {
       name: formData.name,
       location: formData.location || undefined,
       phone: formData.phone || undefined,
+      whatsapp_chat_id: formData.whatsapp_chat_id || undefined,
     }, {
       onSuccess: () => {
         setIsAddDialogOpen(false);
-        setFormData({ name: "", location: "", phone: "" });
+        setFormData({ name: "", location: "", phone: "", whatsapp_chat_id: null });
         refetchLimits();
       },
       onError: (error: any) => {
@@ -106,11 +109,12 @@ export default function Branches() {
       name: formData.name,
       location: formData.location || null,
       phone: formData.phone || null,
+      whatsapp_chat_id: formData.whatsapp_chat_id || null,
     }, {
       onSuccess: () => {
         setIsEditDialogOpen(false);
         setSelectedBranch(null);
-        setFormData({ name: "", location: "", phone: "" });
+        setFormData({ name: "", location: "", phone: "", whatsapp_chat_id: null });
       }
     });
   };
@@ -139,6 +143,7 @@ export default function Branches() {
       name: branch.name,
       location: branch.location || "",
       phone: branch.phone || "",
+      whatsapp_chat_id: branch.whatsapp_chat_id || null,
     });
     setIsEditDialogOpen(true);
   };
@@ -206,6 +211,10 @@ export default function Branches() {
                   dir="ltr"
                 />
               </div>
+              <BranchGroupPicker
+                value={formData.whatsapp_chat_id}
+                onChange={(chatId) => setFormData({ ...formData, whatsapp_chat_id: chatId })}
+              />
               <Button 
                 onClick={handleAddBranch} 
                 className="w-full"
@@ -339,7 +348,13 @@ export default function Branches() {
                     <span dir="ltr">{branch.phone}</span>
                   </div>
                 )}
-                {!branch.location && !branch.phone && (
+                {branch.whatsapp_chat_id && (
+                  <div className="flex items-center gap-2 text-sm text-success">
+                    <Users className="w-4 h-4" />
+                    <span>مربوط بمجموعة واتساب</span>
+                  </div>
+                )}
+                {!branch.location && !branch.phone && !branch.whatsapp_chat_id && (
                   <p className="text-sm text-muted-foreground">لا توجد معلومات إضافية</p>
                 )}
               </div>
@@ -390,6 +405,10 @@ export default function Branches() {
                 dir="ltr"
               />
             </div>
+            <BranchGroupPicker
+              value={formData.whatsapp_chat_id}
+              onChange={(chatId) => setFormData({ ...formData, whatsapp_chat_id: chatId })}
+            />
             <Button 
               onClick={handleEditBranch} 
               className="w-full"
