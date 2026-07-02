@@ -97,8 +97,47 @@ function fmtNum(n: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n || 0);
 }
 
+// Sudan is UTC+2 (no DST). Compute [start,end] UTC bounds for a "Sudan day/month".
+const SUDAN_OFFSET_HOURS = 2;
+function sudanDayBounds(year: number, monthIdx: number, day: number): { startUTC: Date; endUTC: Date; dateStr: string } {
+  // Sudan midnight = UTC (day 00:00 - 2h) => previous day 22:00 UTC
+  const startUTC = new Date(Date.UTC(year, monthIdx, day, 0 - SUDAN_OFFSET_HOURS, 0, 0));
+  const endUTC = new Date(Date.UTC(year, monthIdx, day + 1, 0 - SUDAN_OFFSET_HOURS, 0, 0));
+  const dateStr = `${String(day).padStart(2,"0")}-${String(monthIdx+1).padStart(2,"0")}-${year}`;
+  return { startUTC, endUTC, dateStr };
+}
+function sudanNow(): { year: number; monthIdx: number; day: number } {
+  const now = new Date(Date.now() + SUDAN_OFFSET_HOURS * 3600 * 1000);
+  return { year: now.getUTCFullYear(), monthIdx: now.getUTCMonth(), day: now.getUTCDate() };
+}
+
+// Check if sender is a WhatsApp group admin via Green API getGroupData
+async function isWhatsappGroupAdmin(instanceId: string, token: string, groupChatId: string, senderDigits: string): Promise<boolean> {
+  try {
+    if (!groupChatId || !groupChatId.endsWith("@g.us")) return false;
+    const url = `https://api.green-api.com/waInstance${instanceId}/getGroupData/${token}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId: groupChatId }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const participants = data?.participants || [];
+    const target = senderDigits.replace(/[^\d]/g, "");
+    for (const p of participants) {
+      const pid = String(p?.id || "").replace(/[^\d]/g, "");
+      const isAdmin = p?.isAdmin === true || p?.isSuperAdmin === true;
+      if (isAdmin && pid && (pid === target || pid.endsWith(target.slice(-9)) || target.endsWith(pid.slice(-9)))) {
+        return true;
+      }
+    }
+    return false;
+  } catch { return false; }
+}
+
 async function tryHandleAdminCommand(sb: any, ctx: {
-  organization_id: string; connection_id: string; instanceId: string; senderRaw: string; text: string;
+  organization_id: string; connection_id: string; instanceId: string; senderRaw: string; text: string; chatId: string;
 }): Promise<{ handled: boolean; intent?: string }> {
   const norm = normalizeArabic(ctx.text);
   const hasIntent = INTENT_WORDS.some(w => norm.includes(normalizeArabic(w)));
@@ -106,48 +145,69 @@ async function tryHandleAdminCommand(sb: any, ctx: {
 
   const senderDigits = parseSenderPhone(ctx.senderRaw);
 
-  // 🔐 Admin validation: match by phone digit-suffix (handle +, country codes)
+  // Fetch token early (needed for both auth check and reply)
+  const { data: creds } = await sb.from("whatsapp_credentials").select("green_api_token").eq("connection_id", ctx.connection_id).maybeSingle();
+  const token = creds?.green_api_token;
+
+  // 🔐 Admin validation: (A) DB profile+role, OR (B) WhatsApp group admin of monitored chat
+  let authorized = false;
+  let authSource = "";
+
   const { data: profiles } = await sb.from("profiles").select("id, phone").not("phone", "is", null);
   const matched = (profiles || []).find((p: any) => {
     const pd = String(p.phone || "").replace(/[^\d]/g, "");
     return pd && (pd === senderDigits || pd.endsWith(senderDigits.slice(-9)) || senderDigits.endsWith(pd.slice(-9)));
   });
-  if (!matched) {
-    await logToSystem(sb, "warn", `Command from non-admin (no profile): ${senderDigits}`, { sender: senderDigits }, ctx.organization_id, ctx.connection_id);
-    return { handled: true };
+  if (matched) {
+    const { data: roleRow } = await sb.from("user_roles")
+      .select("role").eq("user_id", matched.id).eq("organization_id", ctx.organization_id)
+      .in("role", ["owner","admin"]).maybeSingle();
+    if (roleRow) { authorized = true; authSource = "db_role"; }
   }
-  const { data: roleRow } = await sb.from("user_roles").select("role").eq("user_id", matched.id).eq("organization_id", ctx.organization_id).in("role", ["owner","admin"]).maybeSingle();
-  if (!roleRow) {
-    await logToSystem(sb, "warn", `Command from non-admin user: ${senderDigits}`, { userId: matched.id }, ctx.organization_id, ctx.connection_id);
+
+  if (!authorized && token && ctx.chatId && ctx.chatId.endsWith("@g.us")) {
+    const isGroupAdmin = await isWhatsappGroupAdmin(ctx.instanceId, token, ctx.chatId, senderDigits);
+    if (isGroupAdmin) { authorized = true; authSource = "whatsapp_group_admin"; }
+  }
+
+  if (!authorized) {
+    await logToSystem(sb, "warn", `Command from unauthorized sender: ${senderDigits}`, { sender: senderDigits, chatId: ctx.chatId }, ctx.organization_id, ctx.connection_id);
     return { handled: true };
   }
 
-  // Determine range
+  // Determine range (Sudan timezone)
   const isToday = TODAY_WORDS.some(w => norm.includes(normalizeArabic(w)));
   const month = isToday ? null : detectMonth(norm);
-  const now = new Date();
-  const year = now.getFullYear();
-  let startDate: Date, endDate: Date, isMonthly = false, monthLabel = "";
+  const sn = sudanNow();
+  let startUTC: Date, endUTC: Date, isMonthly = false, monthLabel = "", displayDate = "", lastDayLabel = "";
   if (isToday || (!month && !isToday)) {
-    startDate = new Date(year, now.getMonth(), now.getDate());
-    endDate = startDate;
+    const b = sudanDayBounds(sn.year, sn.monthIdx, sn.day);
+    startUTC = b.startUTC; endUTC = b.endUTC; displayDate = b.dateStr;
   } else {
     isMonthly = true;
-    startDate = new Date(year, (month as number) - 1, 1);
-    endDate = new Date(year, (month as number), 0);
-    monthLabel = String(month).padStart(2, "0");
+    const m = month as number;
+    const lastDay = new Date(Date.UTC(sn.year, m, 0)).getUTCDate();
+    const s = sudanDayBounds(sn.year, m - 1, 1);
+    const e = sudanDayBounds(sn.year, m - 1, lastDay);
+    startUTC = s.startUTC; endUTC = e.endUTC;
+    monthLabel = String(m).padStart(2, "0");
+    lastDayLabel = String(lastDay).padStart(2, "0");
   }
-  const startStr = startDate.toISOString().slice(0, 10);
-  const endStr = endDate.toISOString().slice(0, 10);
+  const startDateStr = new Date(startUTC.getTime() + SUDAN_OFFSET_HOURS * 3600 * 1000).toISOString().slice(0, 10);
+  const endDateStr = new Date(endUTC.getTime() + SUDAN_OFFSET_HOURS * 3600 * 1000 - 1).toISOString().slice(0, 10);
+  const startISO = startUTC.toISOString();
+  const endISO = endUTC.toISOString();
 
-  // Query transfers
+  // Query transfers: match by transfer_date OR created_at (Sudan window) to be robust
   const { data: rows } = await sb
     .from("transfers")
-    .select("amount, is_confirmed, needs_review, fraud_score")
+    .select("amount, is_confirmed, needs_review, fraud_score, transfer_date, created_at")
     .eq("organization_id", ctx.organization_id)
     .eq("is_deleted", false)
-    .gte("transfer_date", startStr)
-    .lte("transfer_date", endStr);
+    .or(
+      `and(transfer_date.gte.${startDateStr},transfer_date.lte.${endDateStr}),` +
+      `and(created_at.gte.${startISO},created_at.lt.${endISO})`
+    );
 
   let revenue = 0, confirmedCount = 0, fraudCount = 0;
   for (const r of rows || []) {
@@ -160,8 +220,8 @@ async function tryHandleAdminCommand(sb: any, ctx: {
     const { data: dupLogs } = await sb.from("system_logs").select("id")
       .eq("organization_id", ctx.organization_id)
       .in("level", ["warn","error"])
-      .gte("created_at", startDate.toISOString())
-      .lte("created_at", new Date(endDate.getTime() + 86400000).toISOString())
+      .gte("created_at", startISO)
+      .lt("created_at", endISO)
       .like("message", "%duplicate%");
     if (dupLogs) fraudCount += dupLogs.length;
   } catch {}
@@ -169,32 +229,28 @@ async function tryHandleAdminCommand(sb: any, ctx: {
   // Build response
   let msg = "";
   if (isMonthly) {
-    const lastDay = String(endDate.getDate()).padStart(2, "0");
     msg = `📊 حساباتي PRO - ملخص الأداء المالي لشهر ${monthLabel}\n` +
-          `📅 الفترة: من 01-${monthLabel}-${year} إلى ${lastDay}-${monthLabel}-${year}\n` +
+          `📅 الفترة: من 01-${monthLabel}-${sn.year} إلى ${lastDayLabel}-${monthLabel}-${sn.year}\n` +
           `💰 إجمالي الإيرادات المسجلة: ${fmtNum(revenue)} ج.س\n` +
           `✅ الاشعارات المؤكدة: ${confirmedCount} عملية\n` +
           `❌ محاولات الاحتيال/التكرار المرفوضة: ${fraudCount} عملية\n` +
           `📈 النظام يعمل بكفاءة وتم التحديث تلقائياً.`;
   } else {
     msg = `📊 حساباتي PRO - ملخص الأداء المالي اليوم\n` +
-          `📅 التاريخ: ${fmtDate(startDate)}\n` +
+          `📅 التاريخ: ${displayDate}\n` +
           `💰 إجمالي الإيرادات المسجلة: ${fmtNum(revenue)} ج.س\n` +
           `✅ الاشعارات المؤكدة: ${confirmedCount} عملية\n` +
           `❌ محاولات الاحتيال/التكرار المرفوضة: ${fraudCount} عملية\n` +
           `📈 النظام يعمل بكفاءة وتم التحديث تلقائياً.`;
   }
 
-  // Fetch token and send PRIVATE DM (never to group)
-  const { data: creds } = await sb.from("whatsapp_credentials").select("green_api_token").eq("connection_id", ctx.connection_id).maybeSingle();
-  const token = creds?.green_api_token;
   if (!token) {
     await logToSystem(sb, "error", "Cannot send admin command reply: missing green_api_token", {}, ctx.organization_id, ctx.connection_id);
     return { handled: true, intent: isMonthly ? "monthly" : "daily" };
   }
   const privateChatId = `${senderDigits}@c.us`;
   const ok = await sendGreenApiDM(ctx.instanceId, token, privateChatId, msg);
-  await logToSystem(sb, ok ? "info" : "error", `Admin command reply ${ok ? "sent" : "FAILED"} to ${privateChatId}`, { intent: isMonthly ? "monthly" : "daily", revenue, confirmedCount, fraudCount }, ctx.organization_id, ctx.connection_id);
+  await logToSystem(sb, ok ? "info" : "error", `Admin command reply ${ok ? "sent" : "FAILED"} to ${privateChatId}`, { intent: isMonthly ? "monthly" : "daily", revenue, confirmedCount, fraudCount, authSource }, ctx.organization_id, ctx.connection_id);
   return { handled: true, intent: isMonthly ? "monthly" : "daily" };
 }
 
