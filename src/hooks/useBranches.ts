@@ -38,7 +38,7 @@ export const useBranches = () => {
   });
 
   const addBranch = useMutation({
-    mutationFn: async (branch: { name: string; location?: string; phone?: string }) => {
+    mutationFn: async (branch: { name: string; location?: string; phone?: string; whatsapp_chat_id?: string }) => {
       if (!currentOrganization?.id) throw new Error('لا توجد مؤسسة محددة');
       
       const { data, error } = await supabase
