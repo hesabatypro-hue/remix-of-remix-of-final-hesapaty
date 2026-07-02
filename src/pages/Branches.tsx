@@ -347,7 +347,13 @@ export default function Branches() {
                     <span dir="ltr">{branch.phone}</span>
                   </div>
                 )}
-                {!branch.location && !branch.phone && (
+                {branch.whatsapp_chat_id && (
+                  <div className="flex items-center gap-2 text-sm text-success">
+                    <Users className="w-4 h-4" />
+                    <span>مربوط بمجموعة واتساب</span>
+                  </div>
+                )}
+                {!branch.location && !branch.phone && !branch.whatsapp_chat_id && (
                   <p className="text-sm text-muted-foreground">لا توجد معلومات إضافية</p>
                 )}
               </div>
