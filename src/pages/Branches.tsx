@@ -82,10 +82,11 @@ export default function Branches() {
       name: formData.name,
       location: formData.location || undefined,
       phone: formData.phone || undefined,
+      whatsapp_chat_id: formData.whatsapp_chat_id || undefined,
     }, {
       onSuccess: () => {
         setIsAddDialogOpen(false);
-        setFormData({ name: "", location: "", phone: "" });
+        setFormData({ name: "", location: "", phone: "", whatsapp_chat_id: null });
         refetchLimits();
       },
       onError: (error: any) => {
@@ -107,11 +108,12 @@ export default function Branches() {
       name: formData.name,
       location: formData.location || null,
       phone: formData.phone || null,
+      whatsapp_chat_id: formData.whatsapp_chat_id || null,
     }, {
       onSuccess: () => {
         setIsEditDialogOpen(false);
         setSelectedBranch(null);
-        setFormData({ name: "", location: "", phone: "" });
+        setFormData({ name: "", location: "", phone: "", whatsapp_chat_id: null });
       }
     });
   };
