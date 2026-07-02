@@ -15,6 +15,7 @@ import {
   Power,
   Loader2,
   Plus as PlusIcon,
+  Users,
 } from "lucide-react";
 import { BranchesSkeleton } from "@/components/ui/page-skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
