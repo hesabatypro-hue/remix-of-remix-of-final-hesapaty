@@ -1672,7 +1672,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "owner" | "admin" | "manager" | "viewer"
+      app_role: "owner" | "admin" | "manager" | "viewer" | "cashier"
       ledger_entry_type: "debit" | "credit"
       whatsapp_connection_status: "connected" | "pending" | "disconnected"
     }
@@ -1802,7 +1802,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["owner", "admin", "manager", "viewer"],
+      app_role: ["owner", "admin", "manager", "viewer", "cashier"],
       ledger_entry_type: ["debit", "credit"],
       whatsapp_connection_status: ["connected", "pending", "disconnected"],
     },
