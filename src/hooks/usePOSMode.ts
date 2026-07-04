@@ -9,7 +9,7 @@ export function usePOSMode() {
   const isPOSEnabled = Boolean((currentOrganization as any)?.is_pos_enabled);
   const currentRole = userRoles.find(
     (r) => r.organization_id === currentOrganization?.id,
-  )?.role;
+  )?.role as string | undefined;
   const isCashier = currentRole === "cashier";
 
   return {

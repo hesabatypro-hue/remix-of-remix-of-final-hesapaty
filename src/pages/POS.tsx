@@ -51,7 +51,7 @@ export default function POS() {
     };
   }, []);
 
-  const branchOptions = useMemo(() => branches.data ?? [], [branches.data]);
+  const branchOptions = useMemo(() => branches ?? [], [branches]);
 
   const total = useMemo(
     () => cart.reduce((s, l) => s + l.quantity * l.unit_price, 0),

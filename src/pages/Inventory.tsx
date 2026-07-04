@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Plus, AlertTriangle } from "lucide-react";
 import { useBranches } from "@/hooks/useBranches";
+
 import { useBranchInventory } from "@/hooks/useBranchInventory";
 import { useProducts } from "@/hooks/useProducts";
 
@@ -22,7 +23,7 @@ export default function Inventory() {
     { stock_quantity: 0, low_stock_threshold: 5 },
   );
 
-  const branchOptions = useMemo(() => branches.data ?? [], [branches.data]);
+  const branchOptions = useMemo(() => branches ?? [], [branches]);
 
   const save = async () => {
     if (!branchId || !form.product_id) return;
