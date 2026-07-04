@@ -71,6 +71,64 @@ export type Database = {
         }
         Relationships: []
       }
+      branch_inventory: {
+        Row: {
+          branch_id: string
+          created_at: string
+          custom_sale_price: number | null
+          id: string
+          low_stock_threshold: number
+          organization_id: string
+          product_id: string
+          stock_quantity: number
+          updated_at: string
+        }
+        Insert: {
+          branch_id: string
+          created_at?: string
+          custom_sale_price?: number | null
+          id?: string
+          low_stock_threshold?: number
+          organization_id: string
+          product_id: string
+          stock_quantity?: number
+          updated_at?: string
+        }
+        Update: {
+          branch_id?: string
+          created_at?: string
+          custom_sale_price?: number | null
+          id?: string
+          low_stock_threshold?: number
+          organization_id?: string
+          product_id?: string
+          stock_quantity?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "branch_inventory_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "branch_inventory_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "branch_inventory_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       branches: {
         Row: {
           created_at: string
@@ -661,11 +719,13 @@ export type Database = {
           industry_type: string
           investment_enabled: boolean
           invoicing_enabled: boolean
+          is_pos_enabled: boolean
           logo_url: string | null
           max_branches: number
           max_users: number
           name: string
           plan_type: string
+          pos_activated_at: string | null
           rate_limit_per_minute: number
           slug: string
           stripe_customer_id: string | null
@@ -680,11 +740,13 @@ export type Database = {
           industry_type?: string
           investment_enabled?: boolean
           invoicing_enabled?: boolean
+          is_pos_enabled?: boolean
           logo_url?: string | null
           max_branches?: number
           max_users?: number
           name: string
           plan_type?: string
+          pos_activated_at?: string | null
           rate_limit_per_minute?: number
           slug: string
           stripe_customer_id?: string | null
@@ -699,11 +761,13 @@ export type Database = {
           industry_type?: string
           investment_enabled?: boolean
           invoicing_enabled?: boolean
+          is_pos_enabled?: boolean
           logo_url?: string | null
           max_branches?: number
           max_users?: number
           name?: string
           plan_type?: string
+          pos_activated_at?: string | null
           rate_limit_per_minute?: number
           slug?: string
           stripe_customer_id?: string | null
@@ -803,6 +867,133 @@ export type Database = {
           },
         ]
       }
+      pos_invoice_items: {
+        Row: {
+          created_at: string
+          id: string
+          invoice_id: string
+          product_id: string | null
+          product_name: string
+          quantity: number
+          subtotal: number
+          unit_price: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invoice_id: string
+          product_id?: string | null
+          product_name: string
+          quantity: number
+          subtotal: number
+          unit_price: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          product_id?: string | null
+          product_name?: string
+          quantity?: number
+          subtotal?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pos_invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "pos_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pos_invoice_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pos_invoices: {
+        Row: {
+          bank_reference: string | null
+          branch_id: string
+          cashier_id: string | null
+          client_local_id: string | null
+          created_at: string
+          created_at_local: string | null
+          id: string
+          invoice_number: string
+          notes: string | null
+          organization_id: string
+          payment_method: string
+          status: string
+          synced_at: string
+          total_amount: number
+          transfer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          bank_reference?: string | null
+          branch_id: string
+          cashier_id?: string | null
+          client_local_id?: string | null
+          created_at?: string
+          created_at_local?: string | null
+          id?: string
+          invoice_number: string
+          notes?: string | null
+          organization_id: string
+          payment_method: string
+          status?: string
+          synced_at?: string
+          total_amount: number
+          transfer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bank_reference?: string | null
+          branch_id?: string
+          cashier_id?: string | null
+          client_local_id?: string | null
+          created_at?: string
+          created_at_local?: string | null
+          id?: string
+          invoice_number?: string
+          notes?: string | null
+          organization_id?: string
+          payment_method?: string
+          status?: string
+          synced_at?: string
+          total_amount?: number
+          transfer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pos_invoices_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pos_invoices_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pos_invoices_transfer_id_fkey"
+            columns: ["transfer_id"]
+            isOneToOne: false
+            referencedRelation: "transfers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       print_orders: {
         Row: {
           branch_id: string | null
@@ -887,6 +1078,56 @@ export type Database = {
             columns: ["printer_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          barcode: string | null
+          category: string | null
+          cost_price: number
+          created_at: string
+          default_sale_price: number
+          id: string
+          is_active: boolean
+          is_deleted: boolean
+          organization_id: string
+          product_name: string
+          updated_at: string
+        }
+        Insert: {
+          barcode?: string | null
+          category?: string | null
+          cost_price?: number
+          created_at?: string
+          default_sale_price?: number
+          id?: string
+          is_active?: boolean
+          is_deleted?: boolean
+          organization_id: string
+          product_name: string
+          updated_at?: string
+        }
+        Update: {
+          barcode?: string | null
+          category?: string | null
+          cost_price?: number
+          created_at?: string
+          default_sale_price?: number
+          id?: string
+          is_active?: boolean
+          is_deleted?: boolean
+          organization_id?: string
+          product_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -1573,11 +1814,13 @@ export type Database = {
           industry_type: string
           investment_enabled: boolean
           invoicing_enabled: boolean
+          is_pos_enabled: boolean
           logo_url: string | null
           max_branches: number
           max_users: number
           name: string
           plan_type: string
+          pos_activated_at: string | null
           rate_limit_per_minute: number
           slug: string
           stripe_customer_id: string | null
@@ -1595,6 +1838,10 @@ export type Database = {
       }
       find_branch_by_chat_id: {
         Args: { _chat_id: string; _organization_id: string }
+        Returns: string
+      }
+      find_branch_by_name: {
+        Args: { _name: string; _org: string }
         Returns: string
       }
       generate_platform_invoice_number: { Args: never; Returns: string }
@@ -1639,6 +1886,16 @@ export type Database = {
       mark_platform_invoice_paid: {
         Args: { _invoice_id: string; _method?: string; _reference?: string }
         Returns: boolean
+      }
+      match_pending_pos_invoice: {
+        Args: {
+          _amount: number
+          _bank_ref?: string
+          _org: string
+          _timestamp: string
+          _transfer_id?: string
+        }
+        Returns: string
       }
       post_ledger_entry: {
         Args: {
