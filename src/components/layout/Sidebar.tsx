@@ -137,6 +137,7 @@ function SidebarContent({ collapsed = false, onToggleCollapse, onNavigate }: Sid
     owner: 'مالك',
     admin: 'مدير',
     manager: 'مشرف',
+    cashier: 'كاشير',
     viewer: 'مشاهد',
   };
 
