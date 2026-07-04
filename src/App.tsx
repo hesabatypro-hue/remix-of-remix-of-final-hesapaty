@@ -35,6 +35,9 @@ import InvestmentOrchestrator from "./pages/InvestmentOrchestrator";
 import Invoices from "./pages/Invoices";
 import SubscriptionInvoices from "./pages/SubscriptionInvoices";
 import SubscriptionInvoiceDetail from "./pages/SubscriptionInvoiceDetail";
+import POS from "./pages/POS";
+import Products from "./pages/Products";
+import Inventory from "./pages/Inventory";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -128,6 +131,15 @@ const App = () => (
               } />
               <Route path="/subscription-invoices/:id" element={
                 <ProtectedRoute><SubscriptionInvoiceDetail /></ProtectedRoute>
+              } />
+              <Route path="/pos" element={
+                <ProtectedRoute><POS /></ProtectedRoute>
+              } />
+              <Route path="/products" element={
+                <ProtectedRoute><Products /></ProtectedRoute>
+              } />
+              <Route path="/inventory" element={
+                <ProtectedRoute><Inventory /></ProtectedRoute>
               } />
             </Routes>
           </BrowserRouter>
