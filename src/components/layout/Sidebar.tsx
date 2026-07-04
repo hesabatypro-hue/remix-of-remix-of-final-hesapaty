@@ -25,6 +25,9 @@ import {
   TrendingUp,
   FileSpreadsheet,
   CreditCard,
+  ShoppingCart,
+  Package,
+  Boxes,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -47,13 +50,18 @@ interface MenuItem {
   printingOnly?: boolean;
   investmentOnly?: boolean;
   invoicingOnly?: boolean;
+  posOnly?: boolean;
+  hideWhenPOS?: boolean;
 }
 
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: "لوحة التحكم", path: "/dashboard" },
+  { icon: ShoppingCart, label: "نقطة البيع", path: "/pos", posOnly: true },
+  { icon: Package, label: "المنتجات", path: "/products", posOnly: true },
+  { icon: Boxes, label: "المخزون", path: "/inventory", posOnly: true },
   { icon: Store, label: "الفروع", path: "/branches" },
-  { icon: Receipt, label: "التحويلات", path: "/transfers" },
-  { icon: ShieldAlert, label: "المراجعة البشرية", path: "/review" },
+  { icon: Receipt, label: "التحويلات", path: "/transfers", hideWhenPOS: true },
+  { icon: ShieldAlert, label: "المراجعة البشرية", path: "/review", hideWhenPOS: true },
   { icon: Wallet, label: "المصروفات", path: "/expenses" },
   { icon: UserCog, label: "الموظفين", path: "/employees" },
   { icon: Banknote, label: "الرواتب", path: "/salaries" },
@@ -129,6 +137,7 @@ function SidebarContent({ collapsed = false, onToggleCollapse, onNavigate }: Sid
     owner: 'مالك',
     admin: 'مدير',
     manager: 'مشرف',
+    cashier: 'كاشير',
     viewer: 'مشاهد',
   };
 
@@ -215,6 +224,8 @@ function SidebarContent({ collapsed = false, onToggleCollapse, onNavigate }: Sid
           .filter((item) => !item.printingOnly || currentOrganization?.industry_type === 'printing')
           .filter((item) => !item.investmentOnly || currentOrganization?.investment_enabled === true)
           .filter((item) => !item.invoicingOnly || currentOrganization?.invoicing_enabled === true)
+          .filter((item) => !item.posOnly || (currentOrganization as any)?.is_pos_enabled === true)
+          .filter((item) => !item.hideWhenPOS || (currentOrganization as any)?.is_pos_enabled !== true)
           .map((item) => {
           const isActive = location.pathname === item.path;
           return (
