@@ -159,6 +159,8 @@ export default function POS() {
               </div>
             )}
           </div>
+        </div>
+
 
         {!branchId ? (
           <Card className="p-8 text-center text-muted-foreground">
