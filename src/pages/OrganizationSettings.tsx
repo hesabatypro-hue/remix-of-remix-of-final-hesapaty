@@ -309,8 +309,29 @@ export default function OrganizationSettings() {
                   عند التفعيل سيظهر تبويب "الفواتير" لإصدار فواتير احترافية وتصديرها PDF
                 </p>
               </div>
+
+              {/* POS Module Toggle */}
+              <div className="space-y-2">
+                <Label>مديول نقطة البيع (POS)</Label>
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <ShoppingCart className="w-4 h-4 text-primary" />
+                    <span className="text-sm">تفعيل نقطة البيع والمنتجات والمخزون</span>
+                  </div>
+                  <Switch
+                    checked={!!(currentOrganization as any)?.is_pos_enabled}
+                    onCheckedChange={(checked) => {
+                      updateOrganization.mutate({ is_pos_enabled: checked } as any);
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  عند التفعيل ستظهر تبويبات "نقطة البيع" و"المنتجات" و"المخزون"، وسيتم إخفاء تبويب "التحويلات" لصالح مطابقتها التلقائية بفواتير POS
+                </p>
+              </div>
             </div>
           </div>
+
 
           {/* Usage Stats */}
           <div className="bg-card rounded-2xl shadow-soft border border-border/50 overflow-hidden">
