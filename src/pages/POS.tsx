@@ -31,7 +31,7 @@ export default function POS() {
   );
   const { inventory } = useBranchInventory(branchId);
   const { products } = useProducts();
-  const { createInvoice } = usePOSInvoices(branchId);
+  const { createInvoice, queueSize, flushQueue } = usePOSInvoices(branchId);
   const findByBarcode = useProductByBarcode();
 
   const [cart, setCart] = useState<CartLine[]>([]);
