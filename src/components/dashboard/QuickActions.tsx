@@ -1,40 +1,36 @@
-import { Plus, FileDown, MessageCircle, Calculator } from "lucide-react";
+import { Plus, FileDown, MessageCircle, Calculator, ShoppingCart, Package, Boxes } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
-const actions = [
-  {
-    icon: Plus,
-    label: "إضافة تحويل",
-    description: "تسجيل تحويل يدوي",
-    color: "primary" as const,
-    path: "/transfers",
-  },
-  {
-    icon: FileDown,
-    label: "تصدير التقرير",
-    description: "تقرير اليوم PDF",
-    color: "secondary" as const,
-    path: "/reports",
-  },
-  {
-    icon: MessageCircle,
-    label: "فتح واتساب",
-    description: "عرض المحادثات",
-    color: "success" as const,
-    path: "/whatsapp",
-  },
-  {
-    icon: Calculator,
-    label: "حساب الإيراد",
-    description: "إغلاق اليوم",
-    color: "warning" as const,
-    path: "/financial-reports",
-  },
+type Action = {
+  icon: any;
+  label: string;
+  description: string;
+  color: "primary" | "secondary" | "success" | "warning";
+  path: string;
+};
+
+const baseActions: Action[] = [
+  { icon: Plus, label: "إضافة تحويل", description: "تسجيل تحويل يدوي", color: "primary", path: "/transfers" },
+  { icon: FileDown, label: "تصدير التقرير", description: "تقرير اليوم PDF", color: "secondary", path: "/reports" },
+  { icon: MessageCircle, label: "فتح واتساب", description: "عرض المحادثات", color: "success", path: "/whatsapp" },
+  { icon: Calculator, label: "حساب الإيراد", description: "إغلاق اليوم", color: "warning", path: "/financial-reports" },
+];
+
+const posActions: Action[] = [
+  { icon: ShoppingCart, label: "نقطة البيع", description: "فتح شاشة الكاشير", color: "primary", path: "/pos" },
+  { icon: Package, label: "المنتجات", description: "إدارة الكتالوج", color: "secondary", path: "/products" },
+  { icon: Boxes, label: "المخزون", description: "مستويات المخزون", color: "success", path: "/inventory" },
+  { icon: FileDown, label: "تقارير الإيرادات", description: "المبيعات والتحويلات", color: "warning", path: "/reports" },
 ];
 
 export function QuickActions() {
   const navigate = useNavigate();
+  const { currentOrganization } = useAuth();
+  const posEnabled = (currentOrganization as any)?.is_pos_enabled === true;
+  const actions = posEnabled ? posActions : baseActions;
+
   return (
     <div className="bg-card rounded-2xl shadow-soft border border-border/50 p-6">
       <div className="mb-6">
