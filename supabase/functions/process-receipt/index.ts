@@ -609,7 +609,7 @@ async function processMessage(sb: any, msg: any): Promise<{ status: string; mess
       if (chatBranch) targetBranchId = chatBranch.id;
     }
 
-    const { error: transferError } = await sb.from("transfers").insert({
+    const { data: insertedTransfer, error: transferError } = await sb.from("transfers").insert({
       branch_id: targetBranchId,
       organization_id: connection.organization_id,
       whatsapp_connection_id: connection.id,
@@ -617,14 +617,12 @@ async function processMessage(sb: any, msg: any): Promise<{ status: string; mess
       amount: analysis.amount,
       transfer_date: validatedDate,
       sender_name: analysis.sender ? String(analysis.sender).substring(0, 255) : null,
-      // New financial fields
       transaction_id: txId ? String(txId).substring(0, 100) : null,
       receiver_account: analysis.receiver_account ? String(analysis.receiver_account).substring(0, 255) : null,
       sender_account: analysis.sender_account ? String(analysis.sender_account).substring(0, 100) : null,
       bank_comment: analysis.bank_comment ? String(analysis.bank_comment).substring(0, 1000) : null,
       client_memo: clientMemo ? String(clientMemo).substring(0, 2000) : null,
       is_manual_memo: false,
-      // Legacy fields
       notes: analysis.reference ? `Reference: ${String(analysis.reference).substring(0, 255)}` : null,
       extracted_data: { ...analysis, whatsapp_linked_text: whatsappText },
       image_url: publicUrl,
@@ -635,7 +633,30 @@ async function processMessage(sb: any, msg: any): Promise<{ status: string; mess
       confirmed_at: !needsReview ? new Date().toISOString() : null,
       fraud_score: fraud.score,
       fraud_flags: fraud.flags,
-    });
+    }).select("id").single();
+
+    // POS auto-match: try matching a pending POS invoice by amount within ±15 minutes
+    if (!needsReview && insertedTransfer?.id) {
+      try {
+        const { data: matchedInvoiceId } = await sb.rpc("match_pending_pos_invoice", {
+          _org: connection.organization_id,
+          _amount: analysis.amount,
+          _timestamp: validatedDate ? new Date(validatedDate).toISOString() : new Date().toISOString(),
+          _transfer_id: insertedTransfer.id,
+          _bank_ref: txId || null,
+        });
+        if (matchedInvoiceId) {
+          await sb.from("system_logs").insert({
+            level: "info", source: "pos-matcher",
+            message: `✅ POS invoice ${matchedInvoiceId} matched with transfer ${insertedTransfer.id}`,
+            metadata: { transfer_id: insertedTransfer.id, invoice_id: matchedInvoiceId, amount: analysis.amount },
+            organization_id: connection.organization_id,
+          });
+        }
+      } catch (e) {
+        console.warn("POS auto-match failed:", e);
+      }
+    }
 
     await sb.from("system_logs").insert({
       level: fraud.score >= 50 ? "warn" : "info",
