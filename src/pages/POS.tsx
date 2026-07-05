@@ -139,20 +139,26 @@ export default function POS() {
             </h1>
             <p className="text-muted-foreground text-sm mt-1">امسح الباركود أو اختر منتجاً وأتمم البيع</p>
           </div>
-          {!currentRole?.branch_id && (
-            <div className="w-56">
-              <Label className="text-xs">الفرع</Label>
-              <Select value={branchId} onValueChange={setBranchId}>
-                <SelectTrigger><SelectValue placeholder="اختر فرع" /></SelectTrigger>
-                <SelectContent>
-                  {branchOptions.map((b: any) => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
+          <div className="flex items-center gap-3">
+            {queueSize > 0 && (
+              <Button size="sm" variant="outline" onClick={() => flushQueue()}>
+                🔄 مزامنة {queueSize} فاتورة محلية
+              </Button>
+            )}
+            {!currentRole?.branch_id && (
+              <div className="w-56">
+                <Label className="text-xs">الفرع</Label>
+                <Select value={branchId} onValueChange={setBranchId}>
+                  <SelectTrigger><SelectValue placeholder="اختر فرع" /></SelectTrigger>
+                  <SelectContent>
+                    {branchOptions.map((b: any) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
 
         {!branchId ? (
           <Card className="p-8 text-center text-muted-foreground">
