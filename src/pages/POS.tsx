@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Barcode, Trash2, Plus, Minus, ShoppingCart, Wallet, CreditCard, Banknote } from "lucide-react";
+import { Barcode, Trash2, Plus, Minus, ShoppingCart, Wallet, CreditCard, Banknote, Receipt, Eye } from "lucide-react";
 import { useBranches } from "@/hooks/useBranches";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProductByBarcode, useProducts } from "@/hooks/useProducts";
 import { useBranchInventory } from "@/hooks/useBranchInventory";
 import { usePOSInvoices, type POSInvoiceItemInput } from "@/hooks/usePOSInvoices";
 import { useToast } from "@/hooks/use-toast";
+import { POSInvoiceDialog } from "@/components/pos/POSInvoiceDialog";
 
 interface CartLine {
   product_id: string | null;
@@ -31,8 +32,9 @@ export default function POS() {
   );
   const { inventory } = useBranchInventory(branchId);
   const { products } = useProducts();
-  const { createInvoice, queueSize, flushQueue } = usePOSInvoices(branchId);
+  const { createInvoice, queueSize, flushQueue, invoices } = usePOSInvoices(branchId);
   const findByBarcode = useProductByBarcode();
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [barcode, setBarcode] = useState("");
@@ -119,7 +121,7 @@ export default function POS() {
       unit_price: l.unit_price,
       subtotal: l.quantity * l.unit_price,
     }));
-    await createInvoice.mutateAsync({
+    const inv = await createInvoice.mutateAsync({
       branch_id: branchId,
       total_amount: total,
       payment_method: payment,
@@ -129,6 +131,8 @@ export default function POS() {
     setCart([]);
     setPayment("cash");
     setManualConfirm(false);
+    // Open the invoice viewer immediately so the cashier can view / print / download
+    if (inv?.id) setOpenInvoiceId(inv.id);
     barcodeRef.current?.focus();
   };
 
