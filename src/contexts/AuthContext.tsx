@@ -17,6 +17,7 @@ interface Organization {
   industry_type: string;
   investment_enabled?: boolean;
   invoicing_enabled?: boolean;
+  is_pos_enabled?: boolean;
 }
 
 interface UserRole {
@@ -95,7 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             created_at,
             industry_type,
             investment_enabled,
-            invoicing_enabled
+            invoicing_enabled,
+            is_pos_enabled
           )
         `)
         .eq('user_id', userId);
