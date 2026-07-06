@@ -112,11 +112,26 @@ export function usePOSInvoices(branchId?: string) {
       items: POSInvoiceItemInput[];
       client_local_id?: string;
       notes?: string;
+      /** Cashier manually confirmed the WhatsApp/bank alert on their phone (trust-based). */
+      manual_confirm?: boolean;
     }) => {
       if (!currentOrganization?.id) throw new Error("no org");
       const invoice_number = `POS-${Date.now()}`;
       const client_local_id =
         input.client_local_id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // Bank transfer stays pending unless cashier explicitly confirms sight of the alert.
+      const status: POSInvoice["status"] =
+        input.payment_method === "bank_transfer" && !input.manual_confirm
+          ? "pending_image"
+          : "confirmed";
+
+      const composedNotes = [
+        input.notes,
+        input.manual_confirm ? "manual_confirm:cashier_sighted_alert" : null,
+      ]
+        .filter(Boolean)
+        .join(" | ") || undefined;
 
       // Offline path → enqueue locally
       if (!navigator.onLine) {
@@ -130,7 +145,7 @@ export function usePOSInvoices(branchId?: string) {
           items: input.items,
           invoice_number,
           created_at_local: new Date().toISOString(),
-          notes: input.notes,
+          notes: composedNotes,
         });
         writeQueue(q);
         setQueueSize(q.length);
@@ -142,7 +157,7 @@ export function usePOSInvoices(branchId?: string) {
           cashier_id: null,
           total_amount: input.total_amount,
           payment_method: input.payment_method,
-          status: input.payment_method === "bank_transfer" ? "pending_image" : "confirmed",
+          status,
           transfer_id: null,
           bank_reference: null,
           created_at: new Date().toISOString(),
@@ -150,7 +165,6 @@ export function usePOSInvoices(branchId?: string) {
       }
 
       const { data: userData } = await supabase.auth.getUser();
-      const status = input.payment_method === "bank_transfer" ? "pending_image" : "confirmed";
 
       const { data: inv, error: invErr } = await supabase
         .from("pos_invoices" as any)
@@ -163,7 +177,7 @@ export function usePOSInvoices(branchId?: string) {
           payment_method: input.payment_method,
           status,
           client_local_id,
-          notes: input.notes,
+          notes: composedNotes,
           created_at_local: new Date().toISOString(),
         })
         .select()
