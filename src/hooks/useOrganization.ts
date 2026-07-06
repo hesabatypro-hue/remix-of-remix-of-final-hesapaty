@@ -9,7 +9,7 @@ export const useOrganization = () => {
   const { currentOrganization, setCurrentOrganization } = useAuth();
 
   const updateOrganization = useMutation({
-    mutationFn: async (updates: { name?: string; logo_url?: string; industry_type?: string; investment_enabled?: boolean; invoicing_enabled?: boolean }) => {
+    mutationFn: async (updates: { name?: string; logo_url?: string; industry_type?: string; investment_enabled?: boolean; invoicing_enabled?: boolean; is_pos_enabled?: boolean }) => {
       if (!currentOrganization?.id) throw new Error('لا توجد مؤسسة محددة');
       
       const { data, error } = await supabase
