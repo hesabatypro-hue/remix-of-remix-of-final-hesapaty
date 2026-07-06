@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Barcode, Trash2, Plus, Minus, ShoppingCart, Wallet, CreditCard, Banknote } from "lucide-react";
+import { Barcode, Trash2, Plus, Minus, ShoppingCart, Wallet, CreditCard, Banknote, Receipt, Eye } from "lucide-react";
 import { useBranches } from "@/hooks/useBranches";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProductByBarcode, useProducts } from "@/hooks/useProducts";
 import { useBranchInventory } from "@/hooks/useBranchInventory";
 import { usePOSInvoices, type POSInvoiceItemInput } from "@/hooks/usePOSInvoices";
 import { useToast } from "@/hooks/use-toast";
+import { POSInvoiceDialog } from "@/components/pos/POSInvoiceDialog";
 
 interface CartLine {
   product_id: string | null;
@@ -31,8 +32,9 @@ export default function POS() {
   );
   const { inventory } = useBranchInventory(branchId);
   const { products } = useProducts();
-  const { createInvoice, queueSize, flushQueue } = usePOSInvoices(branchId);
+  const { createInvoice, queueSize, flushQueue, invoices } = usePOSInvoices(branchId);
   const findByBarcode = useProductByBarcode();
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [barcode, setBarcode] = useState("");
@@ -119,7 +121,7 @@ export default function POS() {
       unit_price: l.unit_price,
       subtotal: l.quantity * l.unit_price,
     }));
-    await createInvoice.mutateAsync({
+    const inv = await createInvoice.mutateAsync({
       branch_id: branchId,
       total_amount: total,
       payment_method: payment,
@@ -129,6 +131,8 @@ export default function POS() {
     setCart([]);
     setPayment("cash");
     setManualConfirm(false);
+    // Open the invoice viewer immediately so the cashier can view / print / download
+    if (inv?.id) setOpenInvoiceId(inv.id);
     barcodeRef.current?.focus();
   };
 
@@ -293,7 +297,99 @@ export default function POS() {
             </Card>
           </div>
         )}
+
+        {/* Recent invoices */}
+        {branchId && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold flex items-center gap-2">
+                <Receipt className="w-4 h-4" /> آخر الفواتير
+              </h3>
+              <span className="text-xs text-muted-foreground">
+                {invoices.data?.length ?? 0} فاتورة
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs text-muted-foreground border-b">
+                  <tr className="text-right">
+                    <th className="py-2">رقم الفاتورة</th>
+                    <th className="py-2">التاريخ</th>
+                    <th className="py-2">الدفع</th>
+                    <th className="py-2">الحالة</th>
+                    <th className="py-2 text-left">المبلغ</th>
+                    <th className="py-2 text-left">إجراء</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(invoices.data ?? []).slice(0, 20).map((inv) => (
+                    <tr key={inv.id} className="border-b hover:bg-muted/40">
+                      <td className="py-2 font-mono text-xs">{inv.invoice_number}</td>
+                      <td className="py-2 text-xs text-muted-foreground">
+                        {new Date(inv.created_at).toLocaleString("ar-EG", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </td>
+                      <td className="py-2 text-xs">
+                        {inv.payment_method === "cash"
+                          ? "نقدي"
+                          : inv.payment_method === "bank_transfer"
+                            ? "تحويل"
+                            : "بطاقة"}
+                      </td>
+                      <td className="py-2">
+                        <Badge
+                          variant={
+                            inv.status === "confirmed"
+                              ? "default"
+                              : inv.status === "pending_image"
+                                ? "outline"
+                                : "secondary"
+                          }
+                          className="text-xs"
+                        >
+                          {inv.status === "confirmed"
+                            ? "مؤكدة"
+                            : inv.status === "pending_image"
+                              ? "بانتظار التحويل"
+                              : inv.status}
+                        </Badge>
+                      </td>
+                      <td className="py-2 text-left font-semibold">
+                        {inv.total_amount.toFixed(2)}
+                      </td>
+                      <td className="py-2 text-left">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setOpenInvoiceId(inv.id)}
+                        >
+                          <Eye className="w-4 h-4 ml-1" /> فتح
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!invoices.data || invoices.data.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground text-sm">
+                        لا توجد فواتير بعد
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        <POSInvoiceDialog
+          invoiceId={openInvoiceId}
+          open={!!openInvoiceId}
+          onOpenChange={(v) => !v && setOpenInvoiceId(null)}
+        />
       </div>
     </DashboardLayout>
   );
 }
+
