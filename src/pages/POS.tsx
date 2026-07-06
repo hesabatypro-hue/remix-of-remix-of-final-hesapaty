@@ -37,6 +37,7 @@ export default function POS() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [barcode, setBarcode] = useState("");
   const [payment, setPayment] = useState<"cash" | "bank_transfer" | "card">("cash");
+  const [manualConfirm, setManualConfirm] = useState(false);
   const barcodeRef = useRef<HTMLInputElement>(null);
 
   // Keep barcode input focused (laser scanner acts as keyboard)
@@ -123,9 +124,11 @@ export default function POS() {
       total_amount: total,
       payment_method: payment,
       items,
+      manual_confirm: payment === "bank_transfer" ? manualConfirm : false,
     });
     setCart([]);
     setPayment("cash");
+    setManualConfirm(false);
     barcodeRef.current?.focus();
   };
 
@@ -257,8 +260,27 @@ export default function POS() {
                 </Button>
               </div>
               {payment === "bank_transfer" && (
-                <div className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 p-3 rounded-lg">
-                  ⏳ ستُنشأ فاتورة بحالة <Badge variant="outline">بانتظار التحويل</Badge> — ستتأكد تلقائياً عند وصول إشعار WhatsApp بنفس المبلغ خلال 15 دقيقة.
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 p-3 border-2 rounded-lg cursor-pointer hover:bg-muted/50 transition"
+                    style={{ borderColor: manualConfirm ? 'hsl(var(--primary))' : undefined }}>
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={manualConfirm}
+                      onChange={(e) => setManualConfirm(e.target.checked)}
+                    />
+                    <div className="flex-1 text-xs">
+                      <p className="font-semibold text-foreground">✅ رأيت إشعار التحويل على الهاتف — أكّد الفاتورة الآن</p>
+                      <p className="text-muted-foreground mt-1">
+                        ستُصدر الفاتورة فوراً بحالة "مؤكدة" بمسؤوليتك. عند وصول الإشعار عبر WhatsApp سيُربط تلقائياً بالفاتورة.
+                      </p>
+                    </div>
+                  </label>
+                  {!manualConfirm && (
+                    <div className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                      ⏳ بدون تأكيد يدوي: ستُنشأ فاتورة <Badge variant="outline">بانتظار التحويل</Badge> وتتأكد تلقائياً خلال 15 دقيقة من وصول إشعار WhatsApp.
+                    </div>
+                  )}
                 </div>
               )}
               <Button
@@ -266,7 +288,7 @@ export default function POS() {
                 onClick={checkout}
                 disabled={cart.length === 0 || createInvoice.isPending}
               >
-                إتمام البيع
+                {payment === "bank_transfer" && manualConfirm ? "إصدار الفاتورة فوراً" : "إتمام البيع"}
               </Button>
             </Card>
           </div>
