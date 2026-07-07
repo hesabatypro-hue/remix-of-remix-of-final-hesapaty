@@ -146,6 +146,8 @@ const App = () => (
                 <ProtectedRoute><Inventory /></ProtectedRoute>
               } />
             </Routes>
+            </ModuleGuard>
+            </ActiveModuleProvider>
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>
