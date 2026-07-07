@@ -33,6 +33,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useOrganizationLimits } from "@/hooks/useOrganizationLimits";
 import { useToast } from "@/hooks/use-toast";
+import { useActiveModule } from "@/modules/ActiveModuleProvider";
+import { useNavigate } from "react-router-dom";
 
 const planLabels: Record<string, string> = {
   free: "المجانية",
@@ -53,7 +55,9 @@ export default function OrganizationSettings() {
   const { updateOrganization, uploadLogo } = useOrganization();
   const { limits, isLoading: limitsLoading } = useOrganizationLimits();
   const { toast } = useToast();
-  
+  const { switchModule } = useActiveModule();
+  const navigate = useNavigate();
+
   const [name, setName] = useState(currentOrganization?.name || "");
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -320,8 +324,20 @@ export default function OrganizationSettings() {
                   </div>
                   <Switch
                     checked={!!(currentOrganization as any)?.is_pos_enabled}
-                    onCheckedChange={(checked) => {
-                      updateOrganization.mutate({ is_pos_enabled: checked } as any);
+                    onCheckedChange={async (checked) => {
+                      await updateOrganization.mutateAsync({ is_pos_enabled: checked } as any);
+                      if (checked) {
+                        switchModule("POS_INVENTORY");
+                        toast({
+                          title: "تم تفعيل نقطة البيع",
+                          description: "تم التبديل إلى واجهة موديول POS المخصّصة",
+                        });
+                        navigate("/dashboard");
+                      } else {
+                        switchModule("REVENUE_TRACKER");
+                        toast({ title: "تم إيقاف نقطة البيع", description: "العودة إلى متعقّب الإيرادات" });
+                        navigate("/dashboard");
+                      }
                     }}
                   />
                 </div>
