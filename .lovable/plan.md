@@ -1,93 +1,111 @@
 
-## ملخص التشخيص
+# خطة: عزل الموديولز (Modular ERP Isolation)
 
-بعد فحص الكود الحالي، ميزة إرسال رسالة التأكيد **موجودة ومكتوبة** في `supabase/functions/process-receipt/index.ts` (الدالة `sendConfirmationMessage`)، لكنها لا تعمل عمليًا لعدة أسباب مجتمعة:
+## الهدف
+عند تفعيل موديول "نقطة البيع والمخزون" يتحول النظام بالكامل إلى واجهة مخصصة لهذا الموديول (Sidebar، Dashboard، Routes، الإحصائيات)، ولا تظهر صفحات ولا بيانات الموديولز الأخرى. نبني بنية قابلة للتوسع لموديولات مستقبلية (Payroll, Printing, Investment) بنفس النمط.
 
-### الأسباب الجذرية
-
-1. **المفتاح مغلق افتراضيًا (السبب الأكبر):**
-   عمود `notification_enabled` في جدول `whatsapp_connections` قيمته الافتراضية `false`. `sendConfirmationMessage` تعود فورًا إذا كان مغلقًا. لا يوجد أي مؤشر واضح في الواجهة يخبر المستخدم "أنت لم تفعّل هذا".
-
-2. **الرد لا يذهب إلى نفس القروب في أغلب الحالات (سبب تقني):**
-   في `green-api-webhook`، حقل `content` في `whatsapp_messages` يخزّن `chatId:...` فقط عندما لا يوجد نص في الرسالة. لو أرسل المستخدم صورة **مع تعليق (caption)** أو أرسل الصورة بمفردها في قروب، فإن regex `chatId:([^\s]+)` في `process-receipt` يفشل → يسقط إلى `monitored_chat_id`، وإن لم يُضبَط يرسل DM إلى المرسل الفردي بدل القروب. **النتيجة: لا رسالة تظهر في القروب.**
-
-3. **لا يوجد عمود مخصص لـ `chat_id` في `whatsapp_messages`:**
-   الاعتماد على parsing من `content` هش وينكسر بسهولة.
-
-4. **شكل الرسالة بسيط جدًا** مقارنة بالصورة المرجعية — نص عادي بدون تنسيق واتساب (`*bold*`) ولا هيكلة واضحة تشبه "بطاقة إيصال".
-
-5. **صعوبة التشخيص:** جدول `whatsapp_notification_log` موجود لكن لا يوجد شاشة في التطبيق لعرضه، فالمستخدم لا يعرف لماذا لم تُرسل الرسالة (خطأ Green API؟ chat_id خاطئ؟ مغلق؟).
-
----
-
-## الخطة (5 خطوات)
-
-### 1) إصلاح استهداف القروب الصحيح (الأهم)
-
-- **Migration** جديد يضيف عمود `chat_id text` إلى `whatsapp_messages` مع فهرس.
-- تحديث `green-api-webhook/index.ts` ليخزّن `chatId` في العمود الجديد مباشرة (بدل حشره داخل `content`)، مع الإبقاء على الكتابة القديمة في `content` كـ fallback للتوافق.
-- تحديث `meta-webhook/index.ts` بنفس المنطق (تخزين `wa_id` / `chat_id` للرسائل الواردة).
-- تحديث `process-receipt/index.ts`:
-  - قراءة `msg.chat_id` مباشرة بدل regex على `content`.
-  - **قاعدة الأولوية الجديدة للرد:** `chat_id الوارد` → `monitored_chat_id` → DM للمرسل. القروب دائمًا يفوز.
-
-### 2) تحسين شكل رسالة التأكيد لتشبه الصورة المرجعية
-
-تحديث body في `sendConfirmationMessage` باستخدام تنسيق واتساب:
-
+## 1) طبقة الموديولات (Module Registry)
+ملف جديد `src/modules/registry.ts` يعرّف كل موديول ككائن مستقل:
+```ts
+type ModuleKey = 'REVENUE_TRACKER' | 'POS_INVENTORY' | 'PRINTING' | 'INVESTMENT';
+interface ModuleDefinition {
+  key: ModuleKey;
+  label: string;
+  icon: LucideIcon;
+  isEnabled: (org) => boolean;   // شرط تفعيل الموديول من بيانات المؤسسة
+  priority: number;               // للتحديد الافتراضي
+  routes: RouteConfig[];          // مسارات الموديول (lazy)
+  navItems: NavItem[];            // روابط السايدبار
+  Dashboard: LazyExoticComponent; // لوحة تحكم الموديول
+  QuickActions?: LazyExoticComponent;
+}
 ```
-✅ *تم تسجيل الإيراد بنجاح*
-━━━━━━━━━━━━━━
-💰 *المبلغ:* 25,000 ج.س
-👤 *المرسل:* محمد أحمد
-📅 *التاريخ:* 25/05/2024
-🔖 *رقم العملية:* FT24345236
-━━━━━━━━━━━━━━
-_تم التحليل تلقائيًا_
+- كل موديول ملف مستقل: `src/modules/pos/index.ts`, `src/modules/revenue/index.ts` … يصدّر تعريفه.
+- المسارات والصفحات الحالية تُنقل تدريجياً تحت `src/modules/<name>/pages/*` مع lazy loading.
+
+## 2) الحالة العامة (Active Module Context)
+- `src/modules/ActiveModuleProvider.tsx`: يحسب `activeModule` من `currentOrganization` (أول موديول `isEnabled` حسب `priority`) مع إمكانية تجاوز يدوي محفوظ في `localStorage` (`activeModuleKey:<orgId>`).
+- Hook: `useActiveModule()` → `{ activeModule, availableModules, switchModule }`.
+- عند تغيير المؤسسة أو تعطيل الموديول الحالي → إعادة الحساب تلقائياً.
+
+## 3) توجيه ديناميكي معزول (Isolated Routing)
+- `src/App.tsx`: بدل قائمة `<Route>` الحالية الطويلة، نستخدم `<ModuleRoutes />` الذي:
+  - يُدرج فقط مسارات `activeModule.routes` + مسارات مشتركة (settings, organization, users, auth, subscription-invoices).
+  - كل مسار داخل `<Suspense>` + `<ErrorBoundary>` مستقل حتى لا يُسقط باقي التطبيق.
+  - أي مسار لموديول غير مفعّل → `<Navigate to={activeModule.rootPath} replace />` بدل 404.
+- Lazy loading عبر `React.lazy` لكل صفحة موديول → لا يزيد حجم البناء عند إضافة موديول جديد.
+
+## 4) Layout ديناميكي (Shell)
+- `DashboardLayout` يبقى قشرة محايدة (Header, NetworkStatus, Content, BottomNav).
+- `Sidebar` يقرأ `activeModule.navItems` فقط + العناصر المشتركة (المؤسسة، الإعدادات، الاشتراك، تسجيل الخروج). ينتهي الاعتماد على flags منتشرة (`posOnly`, `hideWhenPOS`, `printingOnly`).
+- `BottomNav` يعرض أول 4 من `activeModule.navItems`.
+- Header يعرض اسم الموديول النشط + Switcher سريع للموديولات المتاحة (لو المؤسسة فعّلت أكثر من واحد).
+
+## 5) لوحة التحكم السياقية (Context-Aware Dashboard)
+- `/dashboard` تصبح Route ثابت يعرض `<activeModule.Dashboard />`.
+- `src/modules/pos/dashboard/POSDashboard.tsx`: إحصائيات مبيعات POS اليومية، عدد الفواتير، تنبيهات مخزون منخفض، أداء الفروع (مبيعات POS)، آخر الفواتير، Quick Actions لـ POS. لا يقرأ من `transfers`.
+- `src/modules/revenue/dashboard/RevenueDashboard.tsx`: الحالي الموجود في `Dashboard.tsx` يُنقل كما هو.
+- كل Dashboard يجلب بياناته من hooks خاصة به فقط (`usePOSStats`, `useDashboardStats`).
+
+## 6) هيكل المجلدات النهائي
+```text
+src/
+  modules/
+    registry.ts
+    ActiveModuleProvider.tsx
+    ModuleRoutes.tsx
+    shared/           # صفحات مشتركة (Settings, Organization, Users…)
+    pos/
+      index.ts        # تعريف الموديول
+      dashboard/POSDashboard.tsx
+      pages/          # POS.tsx, Products.tsx, Inventory.tsx (نُقلت)
+      hooks/          # usePOSStats, usePOSInvoices…
+      components/     # POSInvoiceDialog…
+    revenue/
+      index.ts
+      dashboard/RevenueDashboard.tsx
+      pages/          # Transfers, Reports, Review, WhatsApp*, Statistics…
+      hooks/
+    printing/  (مستقبلي)
+    investment/ (مستقبلي)
 ```
+تنفيذ الخطوة على مرحلتين لتقليل المخاطر:
+- **المرحلة أ (هذه الجلسة):** إنشاء الطبقة (`registry`, `ActiveModuleProvider`, `ModuleRoutes`, dashboards للموديولين) مع **إبقاء ملفات `src/pages/*` مكانها** واستيرادها من الموديولات (re-export). هذا يعطي العزل الكامل بدون نقل ملفات ضخم.
+- **المرحلة ب (تدريجية لاحقاً):** نقل الملفات فعلياً تحت `modules/*/pages` عند الحاجة.
 
-- تنسيق التاريخ إلى `DD/MM/YYYY`.
-- إضافة `transaction_id` إذا توفر.
-- تمرير `transaction_id` كـ argument من `processMessage` إلى `sendConfirmationMessage`.
+## 7) الحماية والاستقرار
+- كل صفحة موديول محاطة بـ `ModuleErrorBoundary` (نسخة من `ErrorBoundary` مع رسالة عربية + زر رجوع للـ dashboard) → سقوط موديول لا يُسقط التطبيق.
+- `Suspense fallback` = skeleton خفيف.
+- منع الوصول: `ProtectedRoute` يفحص انتماء المسار للموديول النشط، وإلا يوجّه إلى `activeModule.rootPath`.
 
-### 3) تشغيل الميزة افتراضيًا للاتصالات الجديدة + UI أوضح
+## 8) UX
+- عند تفعيل POS من صفحة "المؤسسة → نوع النشاط": بعد الحفظ نستدعي `switchModule('POS_INVENTORY')` تلقائياً + toast: "تم التبديل إلى نظام نقطة البيع" + تحويل إلى `/dashboard`.
+- إذا فُعّل أكثر من موديول: Header يظهر `Select` صغير بين الموديولات المتاحة (يحفظ الاختيار في localStorage للمستخدم/المؤسسة).
+- Sidebar يعرض شارة أعلى القائمة باسم الموديول النشط لتوضيح السياق.
 
-- تعديل قيمة `notification_enabled` الافتراضية إلى `true` في migration جديد (لن يمس الاتصالات القائمة إلا إذا صرّح المستخدم).
-- في `WhatsAppSettings.tsx`:
-  - إضافة شارة تحذير حمراء بجوار الاتصال إذا كان `notification_enabled = false` تقول: "التأكيد التلقائي معطّل — لن يستلم العميل رسالة تحليل".
-  - نقل الـ Switch إلى مكان أبرز مع عنوان "🔔 إرسال إيصال تحليل تلقائي إلى نفس القروب".
+## 9) التسليم (Deliverables)
+ملفات جديدة:
+- `src/modules/registry.ts`
+- `src/modules/ActiveModuleProvider.tsx`
+- `src/modules/ModuleRoutes.tsx`
+- `src/modules/ModuleErrorBoundary.tsx`
+- `src/modules/pos/index.ts`
+- `src/modules/pos/dashboard/POSDashboard.tsx`
+- `src/modules/pos/hooks/usePOSStats.ts`
+- `src/modules/revenue/index.ts`
+- `src/modules/revenue/dashboard/RevenueDashboard.tsx`
+- `src/modules/shared/index.ts` (تعريف الروابط والمسارات المشتركة)
 
-### 4) شاشة سجل الإشعارات (تشخيص)
+تعديلات:
+- `src/App.tsx` → استخدام `ModuleRoutes` + `ActiveModuleProvider`.
+- `src/components/layout/Sidebar.tsx` → قراءة من `useActiveModule()`.
+- `src/components/layout/BottomNav.tsx` → قراءة من `useActiveModule()`.
+- `src/pages/Dashboard.tsx` → shell يعرض `activeModule.Dashboard`.
+- `src/pages/OrganizationSettings.tsx` → بعد تفعيل POS: `switchModule` + toast + تحويل.
+- `src/hooks/usePOSMode.ts` → يبقى مغلّفاً حول `useActiveModule` للتوافق الرجعي.
 
-- صفحة `/whatsapp-confirmation-log` (المستخدم بالفعل عليها الآن) تُقرأ من `whatsapp_notification_log` مع فلترة حسب الاتصال والحالة (`sent` / `failed`) وعرض `error_message`.
-- إضافة عمود `transfer_id` لكل صف مع رابط للتحويلة.
-- زر "إعادة اختبار" يرسل رسالة تجريبية إلى القروب المُراقَب لكل اتصال.
-
-### 5) اختبار End-to-End يدوي
-
-- إنشاء اتصال Green API، تفعيل المفتاح، اختيار قروب مراقَب.
-- إرسال إيصال بنك الخرطوم إلى القروب.
-- التحقق من:
-  - `whatsapp_messages.chat_id` تعبّأ صحيحًا.
-  - رسالة التأكيد وصلت **إلى نفس القروب** خلال ثوانٍ.
-  - `whatsapp_notification_log` سجّل صفًا بـ `status='sent'`.
-- محاكاة فشل (token خاطئ) والتأكد أن الفشل يظهر في السجل بدون كسر الـ pipeline.
-
----
-
-## الملفات التي ستُعدَّل
-
-- `supabase/migrations/<new>_add_chat_id_to_messages.sql` (جديد)
-- `supabase/migrations/<new>_enable_confirmation_default.sql` (جديد)
-- `supabase/functions/green-api-webhook/index.ts`
-- `supabase/functions/meta-webhook/index.ts`
-- `supabase/functions/process-receipt/index.ts` (تحسين استهداف + شكل الرسالة)
-- `src/pages/WhatsAppSettings.tsx` (شارة تحذير + UI أوضح)
-- `src/pages/WhatsAppConfirmationLog.tsx` (تحسينات + زر اختبار)
-- إضافة edge function صغيرة `send-test-confirmation` للاختبار اليدوي من الواجهة
-
-## المخاطر والاعتبارات
-
-- **تفعيل افتراضي:** إذا فعّلنا الميزة تلقائيًا لاتصالات جديدة، قد يفاجأ العملاء برسائل — سيبقى الخيار للاتصالات القائمة مغلقًا بينما الجديد يُفعَّل.
-- **حدود Green API:** كل رسالة استهلاك من حصة الاشتراك؛ سنسجّل ذلك بوضوح في UI.
-- **الخصوصية:** الرد في نفس القروب يعني رؤية جميع الأعضاء لمبلغ التحويلة — سنضيف ملاحظة تنبيه في الـ toggle.
+## 10) ملاحظات تقنية
+- لا تغييرات في قاعدة البيانات في هذه المرحلة (الأعمدة `is_pos_enabled`, `industry_type`, `investment_enabled`, `invoicing_enabled` كافية).
+- `usePOSStats` يستعلم `pos_invoices` + `products` (تنبيهات مخزون) بدلاً من `transfers`.
+- لا يتم لمس منطق المصادقة أو الأدوار.
+- كل موديول يُصدَّر ككائن واحد → إضافة موديول جديد لاحقاً = ملف واحد + تسجيله في `registry.ts` بدون تعديل `App.tsx` أو `Sidebar.tsx`.
