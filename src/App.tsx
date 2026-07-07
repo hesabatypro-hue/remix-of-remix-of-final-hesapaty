@@ -7,6 +7,8 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ActiveModuleProvider } from "@/modules/ActiveModuleProvider";
+import { ModuleGuard } from "@/modules/ModuleGuard";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -51,6 +53,8 @@ const App = () => (
             <Toaster />
             <Sonner />
           <BrowserRouter>
+            <ActiveModuleProvider>
+            <ModuleGuard>
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/auth" element={<Auth />} />
