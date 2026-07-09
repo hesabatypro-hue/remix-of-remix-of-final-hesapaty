@@ -43,10 +43,44 @@ export const useOrganization = () => {
     },
   });
 
+  const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+  const MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
+
   const uploadLogo = async (file: File): Promise<string | null> => {
     if (!currentOrganization?.id) return null;
 
-    const fileExt = file.name.split('.').pop();
+    // 🔒 SECURITY: enforce an allow-list on the client so nothing outside
+    // known-safe raster image types ever reaches the public `org-logos`
+    // bucket (e.g. SVG, which can carry executable script and would be
+    // served back with the browser rendering it directly if the object URL
+    // is opened on its own). This mirrors the same restriction enforced at
+    // the bucket level (see migration for allowed_mime_types/file_size_limit).
+    if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
+      toast({
+        title: "نوع ملف غير مسموح",
+        description: "يُسمح فقط بصور PNG أو JPEG أو WEBP",
+        variant: "destructive",
+      });
+      return null;
+    }
+    if (file.size > MAX_LOGO_SIZE_BYTES) {
+      toast({
+        title: "حجم الملف كبير جدًا",
+        description: "الحد الأقصى لحجم الشعار هو 2 ميجابايت",
+        variant: "destructive",
+      });
+      return null;
+    }
+
+    // Derive the extension from the validated MIME type rather than trusting
+    // the client-supplied filename, so a mismatched extension (e.g. a
+    // renamed file) can't slip past the check above.
+    const extByType: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/webp': 'webp',
+    };
+    const fileExt = extByType[file.type];
     const fileName = `${currentOrganization.id}/logo.${fileExt}`;
 
     // Delete old logo if exists
