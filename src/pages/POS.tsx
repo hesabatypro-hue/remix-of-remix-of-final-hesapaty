@@ -32,7 +32,7 @@ export default function POS() {
   );
   const { inventory } = useBranchInventory(branchId);
   const { products } = useProducts();
-  const { createInvoice, queueSize, flushQueue, invoices } = usePOSInvoices(branchId);
+  const { createInvoice, queueSize, flushQueue, invoices, failedQueueSize } = usePOSInvoices(branchId);
   const findByBarcode = useProductByBarcode();
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
@@ -150,6 +150,22 @@ export default function POS() {
             {queueSize > 0 && (
               <Button size="sm" variant="outline" onClick={() => flushQueue()}>
                 🔄 مزامنة {queueSize} فاتورة محلية
+              </Button>
+            )}
+            {failedQueueSize > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() =>
+                  toast({
+                    title: "⚠️ فواتير لم تُسجَّل في النظام",
+                    description:
+                      `${failedQueueSize} فاتورة فشلت مزامنتها نهائيًا ولم تُحفظ في السجل المالي. ` +
+                      "راجع الإعدادات → سجل الفواتير الفاشلة لمعرفة السبب واتخاذ إجراء يدوي.",
+                  })
+                }
+              >
+                ⚠️ {failedQueueSize} فاتورة لم تُسجَّل — راجعها
               </Button>
             )}
             {!currentRole?.branch_id && (

@@ -19,7 +19,8 @@ function isValidMessageId(messageId: string): boolean {
 
 async function verifyMetaSignature(rawBody: string, signatureHeader: string | null, appSecret: string): Promise<boolean> {
   if (!signatureHeader) return false;
-  if (!appSecret) return true;
+  // 🔒 Fail closed: an unconfigured secret must never be treated as "valid".
+  if (!appSecret) return false;
   try {
     const parts = signatureHeader.split("=");
     if (parts.length !== 2 || parts[0] !== "sha256") return false;
@@ -47,7 +48,15 @@ serve(async (req) => {
       const mode = url.searchParams.get('hub.mode');
       const token = url.searchParams.get('hub.verify_token');
       const challenge = url.searchParams.get('hub.challenge');
-      const VERIFY_TOKEN = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN") || 'lovable_whatsapp_verify';
+      const VERIFY_TOKEN = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN");
+
+      // 🔒 Fail closed: no hardcoded fallback secret. A published default
+      // token has zero value as a credential once it's public (as this one
+      // now is, from the open-source repo history).
+      if (!VERIFY_TOKEN) {
+        console.error("WHATSAPP_WEBHOOK_VERIFY_TOKEN is not configured — refusing verification");
+        return new Response('Server misconfigured', { status: 500, headers: corsHeaders });
+      }
 
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
         return new Response(challenge, { status: 200, headers: { ...corsHeaders, 'Content-Type': 'text/plain' } });
@@ -62,12 +71,17 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "Payload too large" }), { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
+      // 🔒 Mandatory HMAC signature verification — fail closed when the
+      // secret is unset, instead of silently accepting unsigned payloads.
+      // (This mirrors meta-webhook, which already does this correctly.)
       const META_APP_SECRET = Deno.env.get("META_APP_SECRET");
-      if (META_APP_SECRET) {
-        const isValid = await verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"), META_APP_SECRET);
-        if (!isValid) {
-          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
+      if (!META_APP_SECRET) {
+        console.error("META_APP_SECRET not configured — rejecting webhook");
+        return new Response(JSON.stringify({ error: "Server misconfigured" }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const isValid = await verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"), META_APP_SECRET);
+      if (!isValid) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       let body: any;

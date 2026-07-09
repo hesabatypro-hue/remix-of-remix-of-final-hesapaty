@@ -55,20 +55,29 @@ serve(async (req) => {
     );
   }
 
-  // Accept service-role bearer (internal callers) without further checks.
-  if (presented !== serviceKey) {
-    // Otherwise validate as a user JWT.
+  const isServiceRoleCaller = presented === serviceKey && serviceKey.length > 0;
+
+  // authenticatedUserId is null for trusted internal (service-role) callers,
+  // and the verified JWT subject for regular end users. It is resolved ONCE
+  // here and reused below for both rate limiting and the object-level
+  // authorization check on `transferId` — never trust it re-derived per use.
+  let authenticatedUserId: string | null = null;
+
+  if (!isServiceRoleCaller) {
+    // Validate as a user JWT.
     try {
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: `Bearer ${presented}` } },
       });
       const { data, error } = await userClient.auth.getClaims(presented);
-      if (error || !data?.claims?.sub) {
+      const sub = data?.claims?.sub as string | undefined;
+      if (error || !sub) {
         return new Response(
           JSON.stringify({ success: false, error: 'Unauthorized' }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      authenticatedUserId = sub;
     } catch {
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' }),
@@ -78,25 +87,18 @@ serve(async (req) => {
   }
 
   // === Per-user rate limit (real users only; service-role bypasses) ===
-  if (presented !== serviceKey) {
+  if (!isServiceRoleCaller && authenticatedUserId) {
     try {
-      const userClient = createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: `Bearer ${presented}` } },
-      });
-      const { data: claims } = await userClient.auth.getClaims(presented);
-      const uid = claims?.claims?.sub as string | undefined;
-      if (uid) {
-        const admin = createClient(supabaseUrl, serviceKey);
-        const { data: allowed } = await admin.rpc(
-          'check_and_increment_ai_rate_limit',
-          { _user_id: uid, _endpoint: 'extract-transfer-amount', _limit: 20, _window_seconds: 60 },
+      const admin = createClient(supabaseUrl, serviceKey);
+      const { data: allowed } = await admin.rpc(
+        'check_and_increment_ai_rate_limit',
+        { _user_id: authenticatedUserId, _endpoint: 'extract-transfer-amount', _limit: 20, _window_seconds: 60 },
+      );
+      if (allowed === false) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'تم تجاوز الحد المسموح. حاول بعد دقيقة.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
-        if (allowed === false) {
-          return new Response(
-            JSON.stringify({ success: false, error: 'تم تجاوز الحد المسموح. حاول بعد دقيقة.' }),
-            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-          );
-        }
       }
     } catch (e) {
       console.error('rate-limit check failed (allowing request):', e);
@@ -195,11 +197,70 @@ serve(async (req) => {
       );
     }
 
-    // If transferId provided, update the transfer with all extracted fields
+    // If transferId provided, update the transfer with all extracted fields.
+    //
+    // 🔒 SECURITY (BOLA/IDOR fix): this handler runs against `transfers` using
+    // the service-role client, which bypasses RLS entirely. A valid JWT only
+    // proves *who* the caller is — it says nothing about which organization's
+    // data they may touch. We must explicitly verify that `transferId`
+    // belongs to an organization the caller is a member of before writing
+    // anything. Service-role callers (internal pipeline triggers) are
+    // exempt, since they are trusted infrastructure, not end users.
     if (transferId) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      // Fetch the transfer's tenant + memo-edit state in one round trip.
+      const { data: existingTransfer, error: fetchError } = await supabase
+        .from('transfers')
+        .select('organization_id, is_manual_memo, client_memo')
+        .eq('id', transferId)
+        .eq('is_deleted', false)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('Failed to load transfer for authorization check:', fetchError);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Internal server error' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!existingTransfer) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Transfer not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Object-level authorization: only enforced for real end users.
+      // Service-role callers (e.g. process-receipt's internal pipeline) are
+      // implicitly trusted and always operate within their own flow.
+      if (!isServiceRoleCaller) {
+        const { data: isMember, error: membershipError } = await supabase.rpc('is_organization_member', {
+          _user_id: authenticatedUserId,
+          _organization_id: existingTransfer.organization_id,
+        });
+
+        if (membershipError) {
+          console.error('Membership check failed:', membershipError);
+          return new Response(
+            JSON.stringify({ success: false, error: 'Internal server error' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (!isMember) {
+          console.warn(
+            `Unauthorized transfer update attempt: user=${authenticatedUserId} transfer=${transferId} org=${existingTransfer.organization_id}`,
+          );
+          return new Response(
+            JSON.stringify({ success: false, error: 'Forbidden' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
 
       const updateData: Record<string, any> = {
         extracted_data: extractedData,
@@ -215,26 +276,29 @@ serve(async (req) => {
       if (extractedData.bank_comment) updateData.bank_comment = extractedData.bank_comment;
 
       // Build client_memo from bank_comment (don't overwrite manual edits)
-      const { data: existingTransfer } = await supabase
-        .from('transfers')
-        .select('is_manual_memo, client_memo')
-        .eq('id', transferId)
-        .single();
-
-      if (existingTransfer && !existingTransfer.is_manual_memo) {
+      if (!existingTransfer.is_manual_memo) {
         updateData.client_memo = extractedData.bank_comment || null;
       }
 
+      // Belt-and-suspenders: re-assert organization_id and is_deleted=false
+      // in the WHERE clause so a TOCTOU race can't slip a write through
+      // between the check above and this write.
       const { error: updateError } = await supabase
         .from('transfers')
         .update(updateData)
-        .eq('id', transferId);
+        .eq('id', transferId)
+        .eq('organization_id', existingTransfer.organization_id)
+        .eq('is_deleted', false);
 
       if (updateError) {
         console.error('Failed to update transfer:', updateError);
-      } else {
-        console.log('Transfer updated with all extracted fields');
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to update transfer' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
+
+      console.log('Transfer updated with all extracted fields');
     }
 
     return new Response(
