@@ -197,11 +197,70 @@ serve(async (req) => {
       );
     }
 
-    // If transferId provided, update the transfer with all extracted fields
+    // If transferId provided, update the transfer with all extracted fields.
+    //
+    // 🔒 SECURITY (BOLA/IDOR fix): this handler runs against `transfers` using
+    // the service-role client, which bypasses RLS entirely. A valid JWT only
+    // proves *who* the caller is — it says nothing about which organization's
+    // data they may touch. We must explicitly verify that `transferId`
+    // belongs to an organization the caller is a member of before writing
+    // anything. Service-role callers (internal pipeline triggers) are
+    // exempt, since they are trusted infrastructure, not end users.
     if (transferId) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      // Fetch the transfer's tenant + memo-edit state in one round trip.
+      const { data: existingTransfer, error: fetchError } = await supabase
+        .from('transfers')
+        .select('organization_id, is_manual_memo, client_memo')
+        .eq('id', transferId)
+        .eq('is_deleted', false)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('Failed to load transfer for authorization check:', fetchError);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Internal server error' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!existingTransfer) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Transfer not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Object-level authorization: only enforced for real end users.
+      // Service-role callers (e.g. process-receipt's internal pipeline) are
+      // implicitly trusted and always operate within their own flow.
+      if (!isServiceRoleCaller) {
+        const { data: isMember, error: membershipError } = await supabase.rpc('is_organization_member', {
+          _user_id: authenticatedUserId,
+          _organization_id: existingTransfer.organization_id,
+        });
+
+        if (membershipError) {
+          console.error('Membership check failed:', membershipError);
+          return new Response(
+            JSON.stringify({ success: false, error: 'Internal server error' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (!isMember) {
+          console.warn(
+            `Unauthorized transfer update attempt: user=${authenticatedUserId} transfer=${transferId} org=${existingTransfer.organization_id}`,
+          );
+          return new Response(
+            JSON.stringify({ success: false, error: 'Forbidden' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
 
       const updateData: Record<string, any> = {
         extracted_data: extractedData,
@@ -217,26 +276,29 @@ serve(async (req) => {
       if (extractedData.bank_comment) updateData.bank_comment = extractedData.bank_comment;
 
       // Build client_memo from bank_comment (don't overwrite manual edits)
-      const { data: existingTransfer } = await supabase
-        .from('transfers')
-        .select('is_manual_memo, client_memo')
-        .eq('id', transferId)
-        .single();
-
-      if (existingTransfer && !existingTransfer.is_manual_memo) {
+      if (!existingTransfer.is_manual_memo) {
         updateData.client_memo = extractedData.bank_comment || null;
       }
 
+      // Belt-and-suspenders: re-assert organization_id and is_deleted=false
+      // in the WHERE clause so a TOCTOU race can't slip a write through
+      // between the check above and this write.
       const { error: updateError } = await supabase
         .from('transfers')
         .update(updateData)
-        .eq('id', transferId);
+        .eq('id', transferId)
+        .eq('organization_id', existingTransfer.organization_id)
+        .eq('is_deleted', false);
 
       if (updateError) {
         console.error('Failed to update transfer:', updateError);
-      } else {
-        console.log('Transfer updated with all extracted fields');
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to update transfer' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
+
+      console.log('Transfer updated with all extracted fields');
     }
 
     return new Response(
