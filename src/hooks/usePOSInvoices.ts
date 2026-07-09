@@ -102,26 +102,96 @@ export function usePOSInvoices(branchId?: string) {
     },
   });
 
+  const [failedQueueSize, setFailedQueueSize] = useState<number>(() => readFailedQueue().length);
+
   const flushQueue = useCallback(async () => {
     const q = readQueue();
     if (!q.length || !navigator.onLine) return;
     try {
+      // Strip local-only bookkeeping before sending to the server.
+      const payload = q.map(({ _retry_count, ...rest }) => rest);
       const { data, error } = await supabase.functions.invoke("pos-sync-batch", {
-        body: { invoices: q },
+        body: { invoices: payload },
       });
       if (error) throw error;
+
       const synced: string[] = (data as any)?.synced ?? [];
-      const remaining = q.filter((x) => !synced.includes(x.client_local_id));
-      writeQueue(remaining);
-      setQueueSize(remaining.length);
+      const failed: Array<{ id: string; error: string }> = (data as any)?.failed ?? [];
+      const failedById = new Map(failed.map((f) => [f.id, f.error]));
+
+      const stillPending: QueuedInvoice[] = [];
+      const newlyFailed: FailedQueuedInvoice[] = [];
+
+      for (const item of q) {
+        if (synced.includes(item.client_local_id)) continue; // done, drop it
+
+        const reason = failedById.get(item.client_local_id);
+        if (!reason) {
+          // Not mentioned in either list (e.g. dropped by a network hiccup
+          // mid-batch) — keep it, retry next time.
+          stillPending.push(item);
+          continue;
+        }
+
+        const retries = (item._retry_count ?? 0) + 1;
+        if (RETRYABLE_ERRORS.has(reason) && retries < MAX_AUTO_RETRIES) {
+          stillPending.push({ ...item, _retry_count: retries });
+        } else {
+          // 🔒 Permanent (or exhausted-retry) failure: move OUT of the retry
+          // queue so it is never silently re-attempted forever, and record
+          // *why* so the cashier/owner can review and act on it.
+          newlyFailed.push({ ...item, error: reason, failed_at: new Date().toISOString() });
+        }
+      }
+
+      writeQueue(stillPending);
+      setQueueSize(stillPending.length);
+
+      if (newlyFailed.length) {
+        const dead = [...readFailedQueue(), ...newlyFailed];
+        writeFailedQueue(dead);
+        setFailedQueueSize(dead.length);
+        toast({
+          title: "⚠️ فواتير لم تُسجَّل ولن تُعاد محاولتها تلقائيًا",
+          description: `${newlyFailed.length} فاتورة تحتاج مراجعتك اليدوية — لم تُحفظ في السجل المالي.`,
+          variant: "destructive",
+        });
+      }
+
       if (synced.length) {
         toast({ title: "تمت مزامنة الفواتير غير المتصلة", description: `${synced.length} فاتورة` });
         qc.invalidateQueries({ queryKey: ["pos-invoices"] });
       }
     } catch (e) {
+      // Network/invoke-level failure (not a per-item business rejection):
+      // leave the queue untouched, we'll try again on the next reconnect.
       console.warn("pos-sync-batch failed", e);
     }
   }, [qc, toast]);
+
+  /** Read-only access to permanently-failed invoices for a review UI. */
+  const getFailedQueue = useCallback(() => readFailedQueue(), []);
+
+  /** Move a failed invoice back into the active retry queue (e.g. after the
+   * owner fixes the underlying cause, such as re-adding org membership). */
+  const requeueFailedInvoice = useCallback((clientLocalId: string) => {
+    const dead = readFailedQueue();
+    const item = dead.find((x) => x.client_local_id === clientLocalId);
+    if (!item) return;
+    const { error, failed_at, ...rest } = item;
+    writeQueue([...readQueue(), { ...rest, _retry_count: 0 }]);
+    const remainingDead = dead.filter((x) => x.client_local_id !== clientLocalId);
+    writeFailedQueue(remainingDead);
+    setQueueSize(readQueue().length);
+    setFailedQueueSize(remainingDead.length);
+  }, []);
+
+  /** Permanently discard a failed invoice (owner has manually recorded it another way). */
+  const dismissFailedInvoice = useCallback((clientLocalId: string) => {
+    const remainingDead = readFailedQueue().filter((x) => x.client_local_id !== clientLocalId);
+    writeFailedQueue(remainingDead);
+    setFailedQueueSize(remainingDead.length);
+  }, []);
 
   // Flush when we come back online
   useEffect(() => {
