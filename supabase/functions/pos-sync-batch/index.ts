@@ -117,6 +117,34 @@ serve(async (req) => {
           continue;
         }
 
+        // 🔒 Reject payloads whose totals don't mathematically add up
+        // before touching the database at all.
+        const arithmeticError = validateInvoiceArithmetic(q);
+        if (arithmeticError) {
+          failed.push({ id: q.client_local_id, error: arithmeticError });
+          continue;
+        }
+
+        // 🔒 Any referenced product must belong to the same organization —
+        // otherwise a client could reference another tenant's product_id
+        // (cross-tenant data leakage / confusion in reporting).
+        const productIds = [...new Set(q.items.map((it) => it.product_id).filter((id): id is string => !!id))];
+        if (productIds.length > 0) {
+          const { data: validProducts, error: prodErr } = await sb
+            .from("products")
+            .select("id")
+            .eq("organization_id", q.organization_id)
+            .in("id", productIds);
+          if (prodErr) throw prodErr;
+          const validIds = new Set((validProducts || []).map((p: any) => p.id));
+          if (validIds.size !== productIds.length) {
+            failed.push({ id: q.client_local_id, error: "product_org_mismatch" });
+            continue;
+          }
+        }
+
+
+
         const status = q.payment_method === "bank_transfer" ? "pending_image" : "confirmed";
         const { data: inv, error: invErr } = await sb
           .from("pos_invoices")
