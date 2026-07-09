@@ -71,12 +71,17 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "Payload too large" }), { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
+      // 🔒 Mandatory HMAC signature verification — fail closed when the
+      // secret is unset, instead of silently accepting unsigned payloads.
+      // (This mirrors meta-webhook, which already does this correctly.)
       const META_APP_SECRET = Deno.env.get("META_APP_SECRET");
-      if (META_APP_SECRET) {
-        const isValid = await verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"), META_APP_SECRET);
-        if (!isValid) {
-          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        }
+      if (!META_APP_SECRET) {
+        console.error("META_APP_SECRET not configured — rejecting webhook");
+        return new Response(JSON.stringify({ error: "Server misconfigured" }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const isValid = await verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"), META_APP_SECRET);
+      if (!isValid) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       let body: any;
