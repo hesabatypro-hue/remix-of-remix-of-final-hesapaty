@@ -55,20 +55,29 @@ serve(async (req) => {
     );
   }
 
-  // Accept service-role bearer (internal callers) without further checks.
-  if (presented !== serviceKey) {
-    // Otherwise validate as a user JWT.
+  const isServiceRoleCaller = presented === serviceKey && serviceKey.length > 0;
+
+  // authenticatedUserId is null for trusted internal (service-role) callers,
+  // and the verified JWT subject for regular end users. It is resolved ONCE
+  // here and reused below for both rate limiting and the object-level
+  // authorization check on `transferId` — never trust it re-derived per use.
+  let authenticatedUserId: string | null = null;
+
+  if (!isServiceRoleCaller) {
+    // Validate as a user JWT.
     try {
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: `Bearer ${presented}` } },
       });
       const { data, error } = await userClient.auth.getClaims(presented);
-      if (error || !data?.claims?.sub) {
+      const sub = data?.claims?.sub as string | undefined;
+      if (error || !sub) {
         return new Response(
           JSON.stringify({ success: false, error: 'Unauthorized' }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      authenticatedUserId = sub;
     } catch {
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' }),
@@ -78,25 +87,18 @@ serve(async (req) => {
   }
 
   // === Per-user rate limit (real users only; service-role bypasses) ===
-  if (presented !== serviceKey) {
+  if (!isServiceRoleCaller && authenticatedUserId) {
     try {
-      const userClient = createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: `Bearer ${presented}` } },
-      });
-      const { data: claims } = await userClient.auth.getClaims(presented);
-      const uid = claims?.claims?.sub as string | undefined;
-      if (uid) {
-        const admin = createClient(supabaseUrl, serviceKey);
-        const { data: allowed } = await admin.rpc(
-          'check_and_increment_ai_rate_limit',
-          { _user_id: uid, _endpoint: 'extract-transfer-amount', _limit: 20, _window_seconds: 60 },
+      const admin = createClient(supabaseUrl, serviceKey);
+      const { data: allowed } = await admin.rpc(
+        'check_and_increment_ai_rate_limit',
+        { _user_id: authenticatedUserId, _endpoint: 'extract-transfer-amount', _limit: 20, _window_seconds: 60 },
+      );
+      if (allowed === false) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'تم تجاوز الحد المسموح. حاول بعد دقيقة.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
-        if (allowed === false) {
-          return new Response(
-            JSON.stringify({ success: false, error: 'تم تجاوز الحد المسموح. حاول بعد دقيقة.' }),
-            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-          );
-        }
       }
     } catch (e) {
       console.error('rate-limit check failed (allowing request):', e);
