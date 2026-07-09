@@ -19,7 +19,8 @@ function isValidMessageId(messageId: string): boolean {
 
 async function verifyMetaSignature(rawBody: string, signatureHeader: string | null, appSecret: string): Promise<boolean> {
   if (!signatureHeader) return false;
-  if (!appSecret) return true;
+  // 🔒 Fail closed: an unconfigured secret must never be treated as "valid".
+  if (!appSecret) return false;
   try {
     const parts = signatureHeader.split("=");
     if (parts.length !== 2 || parts[0] !== "sha256") return false;
