@@ -152,6 +152,22 @@ export default function POS() {
                 🔄 مزامنة {queueSize} فاتورة محلية
               </Button>
             )}
+            {failedQueueSize > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() =>
+                  toast({
+                    title: "⚠️ فواتير لم تُسجَّل في النظام",
+                    description:
+                      `${failedQueueSize} فاتورة فشلت مزامنتها نهائيًا ولم تُحفظ في السجل المالي. ` +
+                      "راجع الإعدادات → سجل الفواتير الفاشلة لمعرفة السبب واتخاذ إجراء يدوي.",
+                  })
+                }
+              >
+                ⚠️ {failedQueueSize} فاتورة لم تُسجَّل — راجعها
+              </Button>
+            )}
             {!currentRole?.branch_id && (
               <div className="w-56">
                 <Label className="text-xs">الفرع</Label>
