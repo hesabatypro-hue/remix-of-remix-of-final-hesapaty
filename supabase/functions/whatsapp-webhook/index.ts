@@ -48,7 +48,15 @@ serve(async (req) => {
       const mode = url.searchParams.get('hub.mode');
       const token = url.searchParams.get('hub.verify_token');
       const challenge = url.searchParams.get('hub.challenge');
-      const VERIFY_TOKEN = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN") || 'lovable_whatsapp_verify';
+      const VERIFY_TOKEN = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN");
+
+      // 🔒 Fail closed: no hardcoded fallback secret. A published default
+      // token has zero value as a credential once it's public (as this one
+      // now is, from the open-source repo history).
+      if (!VERIFY_TOKEN) {
+        console.error("WHATSAPP_WEBHOOK_VERIFY_TOKEN is not configured — refusing verification");
+        return new Response('Server misconfigured', { status: 500, headers: corsHeaders });
+      }
 
       if (mode === 'subscribe' && token === VERIFY_TOKEN) {
         return new Response(challenge, { status: 200, headers: { ...corsHeaders, 'Content-Type': 'text/plain' } });
