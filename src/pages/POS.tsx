@@ -32,7 +32,7 @@ export default function POS() {
   );
   const { inventory } = useBranchInventory(branchId);
   const { products } = useProducts();
-  const { createInvoice, queueSize, flushQueue, invoices } = usePOSInvoices(branchId);
+  const { createInvoice, queueSize, flushQueue, invoices, failedQueueSize } = usePOSInvoices(branchId);
   const findByBarcode = useProductByBarcode();
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
