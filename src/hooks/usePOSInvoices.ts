@@ -36,9 +36,19 @@ interface QueuedInvoice {
   invoice_number: string;
   created_at_local: string;
   notes?: string;
+  /** Local-only bookkeeping; never sent to the server. */
+  _retry_count?: number;
 }
 
 const QUEUE_KEY = "pos_offline_queue_v1";
+const FAILED_QUEUE_KEY = "pos_offline_queue_failed_v1";
+
+export interface FailedQueuedInvoice extends QueuedInvoice {
+  /** Machine-readable reason returned by pos-sync-batch (e.g. "total_amount_mismatch"). */
+  error: string;
+  /** When we gave up retrying it. */
+  failed_at: string;
+}
 
 function readQueue(): QueuedInvoice[] {
   try {
@@ -50,6 +60,24 @@ function readQueue(): QueuedInvoice[] {
 function writeQueue(q: QueuedInvoice[]) {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
 }
+
+function readFailedQueue(): FailedQueuedInvoice[] {
+  try {
+    return JSON.parse(localStorage.getItem(FAILED_QUEUE_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function writeFailedQueue(q: FailedQueuedInvoice[]) {
+  localStorage.setItem(FAILED_QUEUE_KEY, JSON.stringify(q));
+}
+
+// A handful of failure reasons are worth one automatic retry (e.g. the org
+// membership row hadn't propagated yet), but everything else is a permanent
+// business-logic rejection (bad arithmetic, cross-tenant product, etc.) and
+// must NOT be retried silently forever — it needs a human to look at it.
+const RETRYABLE_ERRORS = new Set(["not_org_member"]);
+const MAX_AUTO_RETRIES = 3;
 
 export function usePOSInvoices(branchId?: string) {
   const { currentOrganization } = useAuth();
