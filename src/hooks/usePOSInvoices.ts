@@ -338,5 +338,14 @@ export function usePOSInvoices(branchId?: string) {
     };
   }, [currentOrganization?.id, qc, toast]);
 
-  return { invoices, createInvoice, queueSize, flushQueue };
+  return {
+    invoices,
+    createInvoice,
+    queueSize,
+    flushQueue,
+    failedQueueSize,
+    getFailedQueue,
+    requeueFailedInvoice,
+    dismissFailedInvoice,
+  };
 }
