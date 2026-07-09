@@ -40,6 +40,7 @@ import SubscriptionInvoiceDetail from "./pages/SubscriptionInvoiceDetail";
 import POS from "./pages/POS";
 import Products from "./pages/Products";
 import Inventory from "./pages/Inventory";
+import OAuthConsent from "./pages/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,7 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/onboarding" element={
