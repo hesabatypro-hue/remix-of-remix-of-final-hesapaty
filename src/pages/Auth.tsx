@@ -65,10 +65,16 @@ export default function Auth() {
   // Existing users who land on /auth while authenticated should always go
   // to their previous page or the dashboard. ProtectedRoute will handle
   // any further redirection if they happen to have no organization yet.
+  // Validate ?next= as a same-origin relative path so external OAuth
+  // clients (MCP consent) get returned to the original consent URL.
+  const rawNext = new URLSearchParams(location.search).get("next");
+  const safeNext =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : null;
+
   useEffect(() => {
     if (user && !authLoading && userDataReady) {
       const from = (location.state as any)?.from?.pathname;
-      const to = from || '/dashboard';
+      const to = safeNext || from || '/dashboard';
       if (to === '/dashboard') {
         logAuthNav('redirect_to_dashboard', {
           from: location.pathname + location.search,
@@ -85,7 +91,8 @@ export default function Auth() {
       });
       navigate(to, { replace: true });
     }
-  }, [user, authLoading, userDataReady, navigate, location, userRoles]);
+  }, [user, authLoading, userDataReady, navigate, location, userRoles, safeNext]);
+
 
   const validateForm = () => {
     try {
@@ -214,9 +221,15 @@ export default function Auth() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
+      // Preserve ?next= so OAuth consent flows return to the original URL
+      // after the Google round-trip lands the user back on /auth.
+      const redirectUri = safeNext
+        ? `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
+        : window.location.origin;
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+        redirect_uri: redirectUri,
       });
+
 
       if (result.error) {
         logAuthNav("google_signin_error", { meta: { message: result.error.message } });

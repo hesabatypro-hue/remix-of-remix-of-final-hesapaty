@@ -24,6 +24,46 @@ interface QueuedInvoice {
   }>;
 }
 
+// Tolerance for floating-point rounding when comparing computed vs. reported
+// monetary totals (not a business discount allowance — unit_price itself is
+// still fully client-controlled, so legitimate per-sale discounts remain
+// possible; this only catches numbers that don't internally add up).
+const AMOUNT_TOLERANCE = 0.01;
+
+function isFiniteNonNegative(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n >= 0;
+}
+
+// 🔒 SECURITY (M-2): validate that the invoice's reported totals are
+// internally consistent with its own line items, and that any referenced
+// product actually belongs to the claimed organization. This does NOT
+// second-guess the cashier's chosen unit_price (discounts are a legitimate
+// business decision) — it only rejects payloads where the numbers a client
+// (or a tampered/compromised client) submitted don't mathematically add up.
+function validateInvoiceArithmetic(q: QueuedInvoice): string | null {
+  if (!isFiniteNonNegative(q.total_amount)) return "invalid_total_amount";
+  if (!Array.isArray(q.items) || q.items.length === 0) return "missing_items";
+
+  let computedTotal = 0;
+  for (const it of q.items) {
+    if (!isFiniteNonNegative(it.quantity) || it.quantity <= 0) return "invalid_item_quantity";
+    if (!isFiniteNonNegative(it.unit_price)) return "invalid_item_unit_price";
+    if (!isFiniteNonNegative(it.subtotal)) return "invalid_item_subtotal";
+
+    const expectedSubtotal = it.quantity * it.unit_price;
+    if (Math.abs(expectedSubtotal - it.subtotal) > AMOUNT_TOLERANCE) {
+      return "item_subtotal_mismatch";
+    }
+    computedTotal += it.subtotal;
+  }
+
+  if (Math.abs(computedTotal - q.total_amount) > AMOUNT_TOLERANCE) {
+    return "total_amount_mismatch";
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -76,6 +116,34 @@ serve(async (req) => {
           synced.push(q.client_local_id);
           continue;
         }
+
+        // 🔒 Reject payloads whose totals don't mathematically add up
+        // before touching the database at all.
+        const arithmeticError = validateInvoiceArithmetic(q);
+        if (arithmeticError) {
+          failed.push({ id: q.client_local_id, error: arithmeticError });
+          continue;
+        }
+
+        // 🔒 Any referenced product must belong to the same organization —
+        // otherwise a client could reference another tenant's product_id
+        // (cross-tenant data leakage / confusion in reporting).
+        const productIds = [...new Set(q.items.map((it) => it.product_id).filter((id): id is string => !!id))];
+        if (productIds.length > 0) {
+          const { data: validProducts, error: prodErr } = await sb
+            .from("products")
+            .select("id")
+            .eq("organization_id", q.organization_id)
+            .in("id", productIds);
+          if (prodErr) throw prodErr;
+          const validIds = new Set((validProducts || []).map((p: any) => p.id));
+          if (validIds.size !== productIds.length) {
+            failed.push({ id: q.client_local_id, error: "product_org_mismatch" });
+            continue;
+          }
+        }
+
+
 
         const status = q.payment_method === "bank_transfer" ? "pending_image" : "confirmed";
         const { data: inv, error: invErr } = await sb
