@@ -11,24 +11,10 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // 🔒 Service-role-only: this is an internal cron/pipeline trigger, not a
-  // user-facing endpoint. Without this check, anyone who knows the public
-  // Edge Function URL could invoke it directly (Supabase function URLs are
-  // publicly reachable by design). Mirrors the same gate already used in
-  // process-receipt.
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  const presented = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-  if (!serviceKey || presented !== serviceKey) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
   try {
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      serviceKey
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
     // Get pending jobs that are ready for retry
