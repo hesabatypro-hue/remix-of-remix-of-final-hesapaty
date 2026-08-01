@@ -148,7 +148,7 @@ const App = () => (
               <Route path="/inventory" element={
                 <ProtectedRoute><Inventory /></ProtectedRoute>
               } />
-              <Route path="/index" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/index" element={<Index />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             </ModuleGuard>
