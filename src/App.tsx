@@ -10,6 +10,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ActiveModuleProvider } from "@/modules/ActiveModuleProvider";
 import { ModuleGuard } from "@/modules/ModuleGuard";
 import Landing from "./pages/Landing";
+import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Terms from "./pages/Terms";
@@ -147,7 +148,7 @@ const App = () => (
               <Route path="/inventory" element={
                 <ProtectedRoute><Inventory /></ProtectedRoute>
               } />
-              <Route path="/index" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/index" element={<Index />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             </ModuleGuard>
