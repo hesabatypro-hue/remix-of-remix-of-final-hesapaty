@@ -288,6 +288,20 @@ serve(async (req) => {
 
   const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
+  // 🔒 Authenticate the webhook: Green API sends the configured
+  // `webhookUrlToken` as a Bearer token. Fail closed when it does not match.
+  // Grace path: connections created before the secret existed have not been
+  // told the token yet, so the first unauthenticated call from a known
+  // instance is accepted once, the secret is installed on that instance, and
+  // every later call is strictly verified.
+  const expectedSecret = Deno.env.get("GREEN_API_WEBHOOK_SECRET") ?? "";
+  const auth = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  const presentedSecret = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  let secretVerified = !expectedSecret || presentedSecret === expectedSecret;
+  let pendingSecretInstall: { connectionId: string; instanceId: string } | null = null;
+
+
+
   try {
     const rawBody = await req.text();
     if (rawBody.length > 1024 * 1024) {
@@ -310,7 +324,7 @@ serve(async (req) => {
 
     const { data: connection } = await sb
       .from("whatsapp_connections")
-      .select("id, branch_id, organization_id, monitored_chat_id, branches(name)")
+      .select("id, branch_id, organization_id, monitored_chat_id, webhook_secret_installed_at, branches(name)")
       .eq("green_api_instance_id", String(instanceId))
       .eq("connection_type", "green_api")
       .single();
@@ -319,6 +333,58 @@ serve(async (req) => {
       await logToSystem(sb, "warn", `Unauthorized instance: ${instanceId}`);
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    if (!secretVerified) {
+      if (connection.webhook_secret_installed_at) {
+        // Secret already installed on this instance → a mismatch is an attack.
+        await logToSystem(sb, "error", `Rejected webhook with invalid secret for instance ${instanceId}`, null, connection.organization_id, connection.id);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // One-time upgrade window for a pre-existing connection.
+      pendingSecretInstall = { connectionId: connection.id, instanceId: String(instanceId) };
+      secretVerified = true;
+    }
+
+    // Install the secret on the Green API instance (once), then enforce strictly.
+    if (pendingSecretInstall && expectedSecret) {
+      try {
+        const { data: c } = await sb
+          .from("whatsapp_credentials")
+          .select("green_api_token")
+          .eq("connection_id", pendingSecretInstall.connectionId)
+          .maybeSingle();
+        if (c?.green_api_token) {
+          const res = await fetch(
+            `https://api.green-api.com/waInstance${pendingSecretInstall.instanceId}/setSettings/${c.green_api_token}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                webhookUrl: `${Deno.env.get("SUPABASE_URL")}/functions/v1/green-api-webhook`,
+                webhookUrlToken: expectedSecret,
+                delaySendMessagesMilliseconds: 1000,
+                markIncomingMessagesReaded: "yes",
+                markIncomingMessagesReadedOnReply: "yes",
+                outgoingWebhook: "yes",
+                outgoingMessageWebhook: "yes",
+                incomingWebhook: "yes",
+                deviceWebhook: "no",
+              }),
+            },
+          );
+          if (res.ok) {
+            await sb
+              .from("whatsapp_connections")
+              .update({ webhook_secret_installed_at: new Date().toISOString() })
+              .eq("id", pendingSecretInstall.connectionId);
+            await logToSystem(sb, "info", "Installed webhook secret on Green API instance", { instanceId: pendingSecretInstall.instanceId }, connection.organization_id, connection.id);
+          }
+        }
+      } catch (e) {
+        console.error("Secret install failed:", (e as Error)?.message);
+      }
+    }
+
 
     if (!(await checkRateLimit(sb, connection.id, connection.organization_id))) {
       return new Response(JSON.stringify({ error: "Rate limit exceeded" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });

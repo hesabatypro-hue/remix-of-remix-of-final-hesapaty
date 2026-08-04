@@ -712,6 +712,27 @@ export type Database = {
         }
         Relationships: []
       }
+      org_ai_rate_limits: {
+        Row: {
+          endpoint: string
+          organization_id: string
+          request_count: number
+          window_start: string
+        }
+        Insert: {
+          endpoint: string
+          organization_id: string
+          request_count?: number
+          window_start: string
+        }
+        Update: {
+          endpoint?: string
+          organization_id?: string
+          request_count?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           created_at: string
@@ -733,6 +754,9 @@ export type Database = {
           subscription_ends_at: string | null
           subscription_status: string
           updated_at: string
+          whatsapp_liability_accepted_at: string | null
+          whatsapp_liability_accepted_by: string | null
+          whatsapp_liability_version: string | null
         }
         Insert: {
           created_at?: string
@@ -754,6 +778,9 @@ export type Database = {
           subscription_ends_at?: string | null
           subscription_status?: string
           updated_at?: string
+          whatsapp_liability_accepted_at?: string | null
+          whatsapp_liability_accepted_by?: string | null
+          whatsapp_liability_version?: string | null
         }
         Update: {
           created_at?: string
@@ -775,6 +802,9 @@ export type Database = {
           subscription_ends_at?: string | null
           subscription_status?: string
           updated_at?: string
+          whatsapp_liability_accepted_at?: string | null
+          whatsapp_liability_accepted_by?: string | null
+          whatsapp_liability_version?: string | null
         }
         Relationships: []
       }
@@ -1587,6 +1617,7 @@ export type Database = {
           updated_at: string
           verification_code: string | null
           verification_expires_at: string | null
+          webhook_secret_installed_at: string | null
           webhook_verify_token: string | null
           whatsapp_business_id: string | null
         }
@@ -1607,6 +1638,7 @@ export type Database = {
           updated_at?: string
           verification_code?: string | null
           verification_expires_at?: string | null
+          webhook_secret_installed_at?: string | null
           webhook_verify_token?: string | null
           whatsapp_business_id?: string | null
         }
@@ -1627,6 +1659,7 @@ export type Database = {
           updated_at?: string
           verification_code?: string | null
           verification_expires_at?: string | null
+          webhook_secret_installed_at?: string | null
           webhook_verify_token?: string | null
           whatsapp_business_id?: string | null
         }
@@ -1795,6 +1828,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_whatsapp_liability: {
+        Args: { _organization_id: string; _version: string }
+        Returns: boolean
+      }
       can_add_branch: { Args: { _organization_id: string }; Returns: boolean }
       can_add_user: { Args: { _organization_id: string }; Returns: boolean }
       check_and_increment_ai_rate_limit: {
@@ -1802,6 +1839,15 @@ export type Database = {
           _endpoint: string
           _limit: number
           _user_id: string
+          _window_seconds?: number
+        }
+        Returns: boolean
+      }
+      check_and_increment_org_ai_rate_limit: {
+        Args: {
+          _endpoint: string
+          _limit: number
+          _organization_id: string
           _window_seconds?: number
         }
         Returns: boolean
@@ -1828,6 +1874,9 @@ export type Database = {
           subscription_ends_at: string | null
           subscription_status: string
           updated_at: string
+          whatsapp_liability_accepted_at: string | null
+          whatsapp_liability_accepted_by: string | null
+          whatsapp_liability_version: string | null
         }
         SetofOptions: {
           from: "*"

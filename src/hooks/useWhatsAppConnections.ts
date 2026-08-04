@@ -23,11 +23,12 @@ export interface WhatsAppConnection {
   created_at: string;
   updated_at: string;
   branches?: Branch;
-  // Credentials (only available to owner/admin)
+  // Credentials are NEVER sent to the browser. We only expose whether a
+  // token exists so the UI can show the correct state.
   credentials?: {
-    access_token: string | null;
-    green_api_token: string | null;
+    has_token: boolean;
   } | null;
+
 }
 
 export const useWhatsAppConnections = () => {
@@ -41,16 +42,22 @@ export const useWhatsAppConnections = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('whatsapp_connections')
-        .select(`*, branches(*), whatsapp_credentials(id, connection_id, access_token, green_api_token, created_at)`)
+        .select(`*, branches(*), whatsapp_credentials(id, connection_id, created_at)`)
         .eq('organization_id', orgId!)
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
-      return (data || []).map((item: any) => ({
-        ...item,
-        credentials: item.whatsapp_credentials?.[0] || item.whatsapp_credentials || null,
-        whatsapp_credentials: undefined,
-      })) as WhatsAppConnection[];
+      return (data || []).map((item: any) => {
+        const cred = Array.isArray(item.whatsapp_credentials)
+          ? item.whatsapp_credentials[0]
+          : item.whatsapp_credentials;
+        return {
+          ...item,
+          credentials: cred ? { has_token: true } : null,
+          whatsapp_credentials: undefined,
+        };
+      }) as WhatsAppConnection[];
+
     },
     enabled: !!orgId,
   });
@@ -180,34 +187,25 @@ export const useWhatsAppConnections = () => {
 
   const testConnection = useMutation({
     mutationFn: async (id: string) => {
-      // Fetch connection
-      const { data: connection, error: fetchError } = await supabase
-        .from('whatsapp_connections').select('*').eq('id', id).single();
-      if (fetchError || !connection) throw new Error('لم يتم العثور على الاتصال');
-      
-      // Fetch credentials
-      const { data: creds } = await supabase
-        .from('whatsapp_credentials').select('*').eq('connection_id', id).single();
-      
-      if (connection.connection_type === 'green_api') {
-        if (!connection.green_api_instance_id || !creds?.green_api_token) throw new Error('بيانات Green API غير مكتملة');
-        const response = await fetch(`https://api.green-api.com/waInstance${connection.green_api_instance_id}/getStateInstance/${creds.green_api_token}`);
-        if (!response.ok) throw new Error('فشل الاتصال بـ Green API');
-        const data = await response.json();
-        if (data.stateInstance !== 'authorized') throw new Error(`حالة الاتصال: ${data.stateInstance || 'غير معروف'}`);
-        return data;
-      } else {
-        if (!connection.whatsapp_business_id || !creds?.access_token) throw new Error('بيانات Meta API غير مكتملة');
-        const response = await fetch(`https://graph.facebook.com/v18.0/${connection.whatsapp_business_id}`, {
-          headers: { 'Authorization': `Bearer ${creds.access_token}` },
-        });
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error?.message || 'فشل الاتصال بـ WhatsApp API');
-        }
-        return await response.json();
+      // Tokens stay server-side: the proxy resolves them and calls the provider.
+      const { data, error } = await supabase.functions.invoke('green-api-proxy', {
+        body: { action: 'connection_test', connectionId: id },
+      });
+      if (error) {
+        let message = error.message || 'فشل الاتصال بالخادم';
+        try {
+          const ctx: any = (error as any).context;
+          if (ctx && typeof ctx.json === 'function') {
+            const body = await ctx.json();
+            if (body?.error) message = body.error;
+          }
+        } catch { /* keep default */ }
+        throw new Error(message);
       }
+      if ((data as any)?.error) throw new Error((data as any).error);
+      return data;
     },
+
     onSuccess: () => {
       toast({ title: "الاتصال يعمل ✓", description: "تم التحقق من صحة الاتصال بنجاح" });
     },
