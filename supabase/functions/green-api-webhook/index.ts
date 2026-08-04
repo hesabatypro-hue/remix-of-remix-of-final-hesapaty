@@ -288,6 +288,22 @@ serve(async (req) => {
 
   const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
+  // 🔒 Authenticate the webhook: Green API sends the configured
+  // `webhookUrlToken` as a Bearer token. Fail closed when it does not match,
+  // otherwise anyone knowing the public URL could inject fake receipts.
+  const expectedSecret = Deno.env.get("GREEN_API_WEBHOOK_SECRET") ?? "";
+  if (expectedSecret) {
+    const auth = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const presented = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+    if (presented !== expectedSecret) {
+      await logToSystem(sb, "warn", "Rejected webhook with invalid/missing secret");
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
+
   try {
     const rawBody = await req.text();
     if (rawBody.length > 1024 * 1024) {

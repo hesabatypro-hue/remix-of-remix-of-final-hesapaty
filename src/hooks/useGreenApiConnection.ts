@@ -3,6 +3,29 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 
+/**
+ * All Green API traffic goes through the `green-api-proxy` Edge Function.
+ * The API token is never read back into the browser: it is written once
+ * (when the admin types it) and afterwards lives only server-side.
+ */
+async function callProxy<T = any>(payload: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke("green-api-proxy", { body: payload });
+  if (error) {
+    // Surface the server-provided Arabic message when available
+    let message = error.message || "فشل الاتصال بالخادم";
+    try {
+      const ctx: any = (error as any).context;
+      if (ctx && typeof ctx.json === "function") {
+        const body = await ctx.json();
+        if (body?.error) message = body.error;
+      }
+    } catch { /* keep default message */ }
+    throw new Error(message);
+  }
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as T;
+}
+
 export const useGreenApiConnection = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -20,74 +43,37 @@ export const useGreenApiConnection = () => {
       instanceId: string;
       apiToken: string;
     }) => {
-      if (!currentOrganization?.id) {
-        throw new Error("لا توجد مؤسسة محددة");
-      }
-
-      // Insert connection without token
-      const { data, error } = await supabase
-        .from("whatsapp_connections")
-        .insert({
-          branch_id: branchId,
-          phone_number: phoneNumber,
-          connection_type: "green_api",
-          green_api_instance_id: instanceId,
-          status: "pending",
-          organization_id: currentOrganization.id,
-        })
-        .select("*, branches(*)")
-        .single();
-
-      if (error) throw error;
-
-      // Insert credentials separately
-      const { error: credError } = await supabase
-        .from("whatsapp_credentials")
-        .insert({
-          connection_id: data.id,
-          green_api_token: apiToken,
-        });
-
-      if (credError) throw credError;
-      return data;
+      if (!currentOrganization?.id) throw new Error("لا توجد مؤسسة محددة");
+      return await callProxy({
+        action: "save",
+        organizationId: currentOrganization.id,
+        branchId,
+        phoneNumber,
+        instanceId,
+        apiToken,
+      });
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["whatsapp-connections"] });
       toast({
         title: "تم إضافة الربط",
-        description: "تم حفظ بيانات Green API بنجاح وسيتم تفعيله تلقائياً",
+        description: data?.webhookConfigured
+          ? "تم حفظ بيانات Green API وإعداد Webhook المؤمَّن تلقائياً"
+          : "تم حفظ بيانات Green API. يرجى الضغط على «إعادة ضبط Webhook» لإكمال التفعيل",
       });
     },
-    onError: (error: any) => {
-      let message = "فشل في إضافة الربط";
-      if (error.code === "23505") {
-        message = "هذا الفرع أو الرقم مرتبط مسبقاً";
-      } else if (error.message) {
-        message = error.message;
-      }
-      toast({
-        title: "خطأ",
-        description: message,
-        variant: "destructive",
-      });
-      console.error("Error adding Green API connection:", error);
+    onError: (error: Error) => {
+      const message =
+        error.message === "LIABILITY_NOT_ACCEPTED"
+          ? "يجب الموافقة على إقرار المسؤولية قبل الربط"
+          : error.message || "فشل في إضافة الربط";
+      toast({ title: "خطأ", description: message, variant: "destructive" });
     },
   });
 
   const testGreenApiConnection = useMutation({
-    mutationFn: async ({
-      instanceId,
-      apiToken,
-    }: {
-      instanceId: string;
-      apiToken: string;
-    }) => {
-      const response = await fetch(
-        `https://api.green-api.com/waInstance${instanceId}/getSettings/${apiToken}`
-      );
-      if (!response.ok) throw new Error("فشل الاتصال بـ Green API");
-      return await response.json();
-    },
+    mutationFn: async ({ instanceId, apiToken }: { instanceId: string; apiToken: string }) =>
+      await callProxy({ action: "test", instanceId, apiToken }),
     onSuccess: () => {
       toast({ title: "الاتصال يعمل", description: "تم التحقق من صحة بيانات Green API بنجاح" });
     },
@@ -97,38 +83,10 @@ export const useGreenApiConnection = () => {
   });
 
   const setupGreenApiWebhook = useMutation({
-    mutationFn: async ({
-      instanceId,
-      apiToken,
-      webhookUrl,
-    }: {
-      instanceId: string;
-      apiToken: string;
-      webhookUrl: string;
-    }) => {
-      const response = await fetch(
-        `https://api.green-api.com/waInstance${instanceId}/setSettings/${apiToken}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            webhookUrl,
-            webhookUrlToken: "",
-            delaySendMessagesMilliseconds: 1000,
-            markIncomingMessagesReaded: "yes",
-            markIncomingMessagesReadedOnReply: "yes",
-            outgoingWebhook: "yes",
-            outgoingMessageWebhook: "yes",
-            incomingWebhook: "yes",
-            deviceWebhook: "no",
-          }),
-        }
-      );
-      if (!response.ok) throw new Error("فشل إعداد Webhook");
-      return await response.json();
-    },
+    mutationFn: async ({ connectionId }: { connectionId: string }) =>
+      await callProxy({ action: "reset_webhook", connectionId }),
     onSuccess: () => {
-      toast({ title: "تم الإعداد", description: "تم إعداد Webhook بنجاح" });
+      toast({ title: "تم الإعداد", description: "تم إعداد Webhook المؤمَّن بنجاح" });
     },
     onError: (error: Error) => {
       toast({ title: "خطأ", description: error.message, variant: "destructive" });
@@ -136,67 +94,27 @@ export const useGreenApiConnection = () => {
   });
 
   const getInstanceState = useMutation({
-    mutationFn: async ({ instanceId, apiToken }: { instanceId: string; apiToken: string }) => {
-      const response = await fetch(
-        `https://api.green-api.com/waInstance${instanceId}/getStateInstance/${apiToken}`
-      );
-      if (!response.ok) throw new Error("فشل جلب حالة الاتصال");
-      return await response.json();
-    },
+    mutationFn: async ({ connectionId }: { connectionId: string }) =>
+      await callProxy({ action: "state", connectionId }),
   });
 
   const rebootInstance = useMutation({
-    mutationFn: async ({ instanceId, apiToken }: { instanceId: string; apiToken: string }) => {
-      const response = await fetch(
-        `https://api.green-api.com/waInstance${instanceId}/reboot/${apiToken}`
-      );
-      if (!response.ok) throw new Error("فشل إعادة تشغيل الاتصال");
-      return await response.json();
-    },
+    mutationFn: async ({ connectionId }: { connectionId: string }) =>
+      await callProxy({ action: "reboot", connectionId }),
   });
 
   const activateConnection = useMutation({
-    mutationFn: async ({
-      instanceId,
-      apiToken,
-      connectionId,
-    }: {
-      instanceId: string;
-      apiToken: string;
-      connectionId: string;
-    }) => {
-      const stateResponse = await fetch(
-        `https://api.green-api.com/waInstance${instanceId}/getStateInstance/${apiToken}`
-      );
-      if (!stateResponse.ok) throw new Error("فشل جلب حالة الاتصال");
-      const stateData = await stateResponse.json();
-
-      if (stateData.stateInstance === "authorized") {
-        await supabase
-          .from("whatsapp_connections")
-          .update({ status: "connected", last_sync_at: new Date().toISOString() })
-          .eq("id", connectionId);
-        return { status: "already_connected", state: stateData };
-      }
-
-      const rebootResponse = await fetch(
-        `https://api.green-api.com/waInstance${instanceId}/reboot/${apiToken}`
-      );
-      if (!rebootResponse.ok) throw new Error("فشل إعادة تشغيل الاتصال");
-
-      await supabase
-        .from("whatsapp_connections")
-        .update({ status: "pending" })
-        .eq("id", connectionId);
-
-      return { status: "rebooted", state: stateData };
-    },
-    onSuccess: (data) => {
+    mutationFn: async ({ connectionId }: { connectionId: string }) =>
+      await callProxy({ action: "activate", connectionId }),
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["whatsapp-connections"] });
-      if (data.status === "already_connected") {
+      if (data?.status === "already_connected") {
         toast({ title: "الاتصال مفعّل", description: "الرقم متصل بالفعل وجاهز لاستقبال الرسائل" });
       } else {
-        toast({ title: "جاري التفعيل", description: "تم إعادة تشغيل الاتصال. يرجى مسح QR Code من تطبيق Green API إذا لزم الأمر" });
+        toast({
+          title: "جاري التفعيل",
+          description: "تم إعادة تشغيل الاتصال. يرجى مسح QR Code من تطبيق Green API إذا لزم الأمر",
+        });
       }
     },
     onError: (error: Error) => {

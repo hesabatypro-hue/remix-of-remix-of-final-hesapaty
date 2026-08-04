@@ -282,24 +282,14 @@ const WhatsAppSettings = () => {
       return;
     }
 
-    // Setup webhook automatically
-    const webhookUrl = getGreenApiWebhookUrl();
-    try {
-      await setupGreenApiWebhook.mutateAsync({
-        instanceId: greenInstanceId,
-        apiToken: greenApiToken,
-        webhookUrl,
-      });
-    } catch (error) {
-      console.error("Failed to setup webhook:", error);
-    }
-
-    await addGreenApiConnection.mutateAsync({ 
-      branchId: branchIdToUse, 
+    // The proxy stores the token server-side and registers the secured webhook
+    await addGreenApiConnection.mutateAsync({
+      branchId: branchIdToUse,
       phoneNumber,
       instanceId: greenInstanceId,
       apiToken: greenApiToken,
     });
+
 
     setIsDialogOpen(false);
     resetForm();
@@ -342,53 +332,14 @@ const WhatsAppSettings = () => {
 
   const handleResetGreenApiWebhook = async (connection: WhatsAppConnection) => {
     if (connection.connection_type !== "green_api") return;
-
-    const greenToken = connection.credentials?.green_api_token;
-    if (!connection.green_api_instance_id || !greenToken) {
-      toast({
-        title: "خطأ",
-        description: "بيانات Green API غير مكتملة لهذا الاتصال",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const webhookUrl = getGreenApiWebhookUrl();
-    if (!webhookUrl) {
-      toast({
-        title: "خطأ",
-        description: "تعذر توليد رابط Webhook لهذا المشروع",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    await setupGreenApiWebhook.mutateAsync({
-      instanceId: connection.green_api_instance_id,
-      apiToken: greenToken,
-      webhookUrl,
-    });
+    await setupGreenApiWebhook.mutateAsync({ connectionId: connection.id });
   };
 
   const handleActivateConnection = async (connection: WhatsAppConnection) => {
     if (connection.connection_type !== "green_api") return;
-
-    const greenToken = connection.credentials?.green_api_token;
-    if (!connection.green_api_instance_id || !greenToken) {
-      toast({
-        title: "خطأ",
-        description: "بيانات Green API غير مكتملة لهذا الاتصال",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    await activateConnection.mutateAsync({
-      instanceId: connection.green_api_instance_id,
-      apiToken: greenToken,
-      connectionId: connection.id,
-    });
+    await activateConnection.mutateAsync({ connectionId: connection.id });
   };
+
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
