@@ -1617,6 +1617,7 @@ export type Database = {
           updated_at: string
           verification_code: string | null
           verification_expires_at: string | null
+          webhook_secret_installed_at: string | null
           webhook_verify_token: string | null
           whatsapp_business_id: string | null
         }
@@ -1637,6 +1638,7 @@ export type Database = {
           updated_at?: string
           verification_code?: string | null
           verification_expires_at?: string | null
+          webhook_secret_installed_at?: string | null
           webhook_verify_token?: string | null
           whatsapp_business_id?: string | null
         }
@@ -1657,6 +1659,7 @@ export type Database = {
           updated_at?: string
           verification_code?: string | null
           verification_expires_at?: string | null
+          webhook_secret_installed_at?: string | null
           webhook_verify_token?: string | null
           whatsapp_business_id?: string | null
         }
