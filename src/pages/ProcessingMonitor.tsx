@@ -23,6 +23,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CronJobsCard } from "@/components/monitoring/CronJobsCard";
 
 type MessageStatus = "pending" | "processed" | "failed";
 
@@ -328,6 +329,11 @@ export default function ProcessingMonitor() {
           <StatCard icon={AlertTriangle} label="مهام فاشلة" value={stats?.failedPending || 0} color="destructive" />
           <StatCard icon={Activity} label="مهام مكتملة" value={stats?.failedCompleted || 0} color="muted" />
         </div>
+
+        {/* Scheduled jobs report */}
+        <CronJobsCard />
+
+
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>

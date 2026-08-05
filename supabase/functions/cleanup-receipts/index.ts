@@ -3,19 +3,31 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers": "authorization, x-cron-secret, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+// Constant-time-ish comparison
+function safeEqual(a: string, b: string) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // 🔒 Service-role-only: this is a destructive internal cron job (deletes
-  // storage objects). It must never be reachable by an unauthenticated
-  // caller who merely knows the public function URL.
+  // 🔒 Internal-only: destructive cron job (deletes storage objects).
+  // Accepted callers: service-role bearer token, or pg_cron via CRON_SECRET.
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
   const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
   const presented = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-  if (!serviceKey || presented !== serviceKey) {
+  const presentedCron = req.headers.get("x-cron-secret") ?? "";
+  const authorized =
+    (!!serviceKey && safeEqual(presented, serviceKey)) ||
+    (!!cronSecret && safeEqual(presentedCron, cronSecret));
+  if (!authorized) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -25,6 +37,22 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_URL") ?? "",
     serviceKey
   );
+
+  const startedAt = new Date();
+  const logRun = async (status: string, details: Record<string, unknown>, errorMessage?: string) => {
+    const finishedAt = new Date();
+    try {
+      await sb.from("cron_job_runs").insert({
+        job_name: "cleanup-receipts",
+        status,
+        started_at: startedAt.toISOString(),
+        finished_at: finishedAt.toISOString(),
+        duration_ms: finishedAt.getTime() - startedAt.getTime(),
+        details,
+        error_message: errorMessage ?? null,
+      });
+    } catch (_) { /* never fail the job because of logging */ }
+  };
 
   try {
     let deletedImages = 0;
@@ -149,6 +177,8 @@ serve(async (req) => {
       metadata: { deletedImages, deletedJobs, deletedMessages },
     });
 
+    await logRun("success", { deletedImages, oldJobsFound: deletedJobs, oldMessagesFound: deletedMessages });
+
     return new Response(JSON.stringify({
       status: "completed",
       deletedImages,
@@ -164,6 +194,7 @@ serve(async (req) => {
       source: "cleanup-receipts",
       message: `Cleanup failed: ${error?.message || error}`,
     });
+    await logRun("failed", {}, String(error?.message || error));
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -182,6 +182,42 @@ export type Database = {
           },
         ]
       }
+      cron_job_runs: {
+        Row: {
+          created_at: string
+          details: Json
+          duration_ms: number | null
+          error_message: string | null
+          finished_at: string
+          id: string
+          job_name: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          details?: Json
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string
+          id?: string
+          job_name: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          details?: Json
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string
+          id?: string
+          job_name?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       employees: {
         Row: {
           base_salary: number

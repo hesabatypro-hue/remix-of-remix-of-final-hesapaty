@@ -3,33 +3,59 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-cron-secret, x-client-info, apikey, content-type",
 };
+
+function safeEqual(a: string, b: string) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // 🔒 Service-role-only: this is an internal cron/pipeline trigger, not a
-  // user-facing endpoint. Without this check, anyone who knows the public
-  // Edge Function URL could invoke it directly (Supabase function URLs are
-  // publicly reachable by design). Mirrors the same gate already used in
-  // process-receipt.
+  // 🔒 Internal-only: cron/pipeline trigger, not a user-facing endpoint.
+  // Accepted callers: service-role bearer token, or pg_cron via CRON_SECRET.
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
   const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
   const presented = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-  if (!serviceKey || presented !== serviceKey) {
+  const presentedCron = req.headers.get("x-cron-secret") ?? "";
+  const authorized =
+    (!!serviceKey && safeEqual(presented, serviceKey)) ||
+    (!!cronSecret && safeEqual(presentedCron, cronSecret));
+  if (!authorized) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
+  const supabaseClient = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    serviceKey
+  );
+
+  const startedAt = new Date();
+  const logRun = async (status: string, details: Record<string, unknown>, errorMessage?: string) => {
+    const finishedAt = new Date();
+    try {
+      await supabaseClient.from("cron_job_runs").insert({
+        job_name: "retry-failed-jobs",
+        status,
+        started_at: startedAt.toISOString(),
+        finished_at: finishedAt.toISOString(),
+        duration_ms: finishedAt.getTime() - startedAt.getTime(),
+        details,
+        error_message: errorMessage ?? null,
+      });
+    } catch (_) { /* logging must never break the job */ }
+  };
+
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      serviceKey
-    );
 
     // Get pending jobs that are ready for retry
     const { data: jobs, error } = await supabaseClient
@@ -43,6 +69,7 @@ serve(async (req) => {
 
     if (error) throw error;
     if (!jobs || jobs.length === 0) {
+      await logRun("success", { processed: 0, failed: 0, total: 0, note: "no_pending_jobs" });
       return new Response(JSON.stringify({ status: "no_pending_jobs" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -120,11 +147,14 @@ serve(async (req) => {
       }
     }
 
+    await logRun(failed > 0 ? "partial" : "success", { processed, failed, total: jobs.length });
+
     return new Response(JSON.stringify({ status: "completed", processed, failed, total: jobs.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("Retry worker error:", error);
+    await logRun("failed", {}, String(error?.message || error));
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
