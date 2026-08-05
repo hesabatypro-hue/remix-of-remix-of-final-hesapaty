@@ -177,6 +177,8 @@ serve(async (req) => {
       metadata: { deletedImages, deletedJobs, deletedMessages },
     });
 
+    await logRun("success", { deletedImages, oldJobsFound: deletedJobs, oldMessagesFound: deletedMessages });
+
     return new Response(JSON.stringify({
       status: "completed",
       deletedImages,
@@ -192,6 +194,7 @@ serve(async (req) => {
       source: "cleanup-receipts",
       message: `Cleanup failed: ${error?.message || error}`,
     });
+    await logRun("failed", {}, String(error?.message || error));
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
