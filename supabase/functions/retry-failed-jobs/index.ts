@@ -69,6 +69,7 @@ serve(async (req) => {
 
     if (error) throw error;
     if (!jobs || jobs.length === 0) {
+      await logRun("success", { processed: 0, failed: 0, total: 0, note: "no_pending_jobs" });
       return new Response(JSON.stringify({ status: "no_pending_jobs" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -146,11 +147,14 @@ serve(async (req) => {
       }
     }
 
+    await logRun(failed > 0 ? "partial" : "success", { processed, failed, total: jobs.length });
+
     return new Response(JSON.stringify({ status: "completed", processed, failed, total: jobs.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("Retry worker error:", error);
+    await logRun("failed", {}, String(error?.message || error));
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
