@@ -1,5 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  validateAndParseAmount,
+  isValidDate,
+  detectMimeType,
+  bufferToBase64DataUrl,
+  buildClientMemo,
+} from "../_shared/receipt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,40 +18,12 @@ const AI_RATE_LIMIT_DELAY = 500;
 const SMART_LINK_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
 // ============ HELPERS ============
-function validateAndParseAmount(amount: any): number {
-  if (amount === null || amount === undefined) return 0;
-  const parsed = parseFloat(String(amount));
-  if (isNaN(parsed) || parsed < 0 || parsed > 1000000000) return 0;
-  return parsed;
-}
-
-function isValidDate(dateStr: any): boolean {
-  if (!dateStr || typeof dateStr !== "string") return false;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
-  return !isNaN(new Date(dateStr).getTime());
-}
-
 async function computeImageHash(buffer: Uint8Array): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-function bufferToBase64DataUrl(buffer: Uint8Array, mimeType: string): string {
-  let binary = "";
-  const chunkSize = 32768;
-  for (let i = 0; i < buffer.length; i += chunkSize) {
-    const chunk = buffer.subarray(i, Math.min(i + chunkSize, buffer.length));
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
-  }
-  return `data:${mimeType};base64,${btoa(binary)}`;
-}
 
-function detectMimeType(buffer: Uint8Array): string {
-  if (buffer[0] === 0x89 && buffer[1] === 0x50) return "image/png";
-  if (buffer[0] === 0x47 && buffer[1] === 0x49) return "image/gif";
-  if (buffer[0] === 0x52 && buffer[1] === 0x49) return "image/webp";
-  return "image/jpeg";
-}
 
 // ============ FRAUD DETECTION ENGINE ============
 interface FraudResult {
@@ -249,12 +228,6 @@ async function findLinkedWhatsAppText(
   }
 }
 
-// Build the merged client_memo from WhatsApp text + bank comment
-function buildClientMemo(whatsappText: string | null, bankComment: string | null): string | null {
-  const parts = [whatsappText, bankComment].filter(Boolean);
-  if (parts.length === 0) return null;
-  return parts.join(" | ");
-}
 
 // ============ WHATSAPP CONFIRMATION REPLY ============
 // Sends a free-form confirmation reply to the same WhatsApp thread that sent

@@ -6,12 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-cron-secret, x-client-info, apikey, content-type",
 };
 
-function safeEqual(a: string, b: string) {
-  if (!a || !b || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
+import { safeEqual, nextRetryDelayMs, runStatus } from "../_shared/retry-policy.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -135,8 +130,7 @@ serve(async (req) => {
           });
         } else {
           // Schedule next retry with exponential backoff
-          const backoffMs = [5000, 30000, 120000];
-          const nextRetry = new Date(Date.now() + (backoffMs[newAttempts - 1] || 120000));
+          const nextRetry = new Date(Date.now() + nextRetryDelayMs(newAttempts));
           await supabaseClient.from("failed_jobs").update({
             status: "pending",
             next_retry_at: nextRetry.toISOString(),
@@ -147,7 +141,7 @@ serve(async (req) => {
       }
     }
 
-    await logRun(failed > 0 ? "partial" : "success", { processed, failed, total: jobs.length });
+    await logRun(runStatus(processed, failed), { processed, failed, total: jobs.length });
 
     return new Response(JSON.stringify({ status: "completed", processed, failed, total: jobs.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
