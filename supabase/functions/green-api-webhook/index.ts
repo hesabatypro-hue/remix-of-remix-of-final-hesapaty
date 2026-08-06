@@ -12,68 +12,22 @@ async function logToSystem(sb: any, level: string, message: string, metadata?: a
   } catch (e) { console.error("Log error:", e); }
 }
 
-function isValidPhone(phone: string): boolean {
-  if (!phone || typeof phone !== "string") return false;
-  const c = phone.replace(/[^\d]/g, "");
-  return c.length >= 7 && c.length <= 20;
-}
-
-function isValidMsgId(id: string): boolean {
-  return !!id && typeof id === "string" && /^[a-zA-Z0-9_\-\.]+$/.test(id) && id.length <= 200;
-}
-
-function isValidInstanceId(id: string): boolean {
-  if (!id) return false;
-  const s = String(id);
-  return /^[a-zA-Z0-9]+$/.test(s) && s.length >= 5 && s.length <= 50;
-}
-
-// ============ ADMIN COMMAND PARSER ============
-const INTENT_WORDS = ["ملخص","إيراد","ايراد","إيرادات","ايرادات","دخل","تقرير","حسابات","revenue","summary","report"];
-const TODAY_WORDS = ["اليوم","النهارده","النهاردة","today"];
-const MONTHS: Record<number, string[]> = {
-  1: ["1","01","يناير","january","jan","واحد"],
-  2: ["2","02","فبراير","february","feb","اثنين","اتنين"],
-  3: ["3","03","مارس","march","mar","ثلاثة","تلاته"],
-  4: ["4","04","أبريل","ابريل","april","apr","اربعة","أربعة"],
-  5: ["5","05","مايو","may","خمسة","خمسه"],
-  6: ["6","06","يونيو","يونيه","june","jun","ستة","سته"],
-  7: ["7","07","يوليو","يوليه","july","jul","سبعة","سبعه"],
-  8: ["8","08","أغسطس","اغسطس","august","aug","ثمانية","تمانية"],
-  9: ["9","09","سبتمبر","september","sep","sept","تسعة","تسعه"],
-  10: ["10","أكتوبر","اكتوبر","october","oct","عشرة","عشره"],
-  11: ["11","نوفمبر","november","nov","احد عشر","إحدى عشر"],
-  12: ["12","ديسمبر","december","dec","اثنا عشر","اثنى عشر"],
-};
-
-function normalizeArabic(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[إأآا]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/[ًٌٍَُِّْـ]/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function detectMonth(norm: string): number | null {
-  const tokens = norm.split(/\s+/);
-  for (const [num, variants] of Object.entries(MONTHS)) {
-    for (const v of variants) {
-      const vn = normalizeArabic(v);
-      if (tokens.includes(vn) || norm.includes(` ${vn} `) || norm.startsWith(vn + " ") || norm.endsWith(" " + vn) || norm === vn) {
-        return parseInt(num, 10);
-      }
-    }
-  }
-  return null;
-}
-
-function parseSenderPhone(sender: string): string {
-  return String(sender || "").replace(/[^\d]/g, "");
-}
+import {
+  SUDAN_OFFSET_HOURS,
+  INTENT_WORDS,
+  TODAY_WORDS,
+  isValidPhone,
+  isValidMsgId,
+  isValidInstanceId,
+  normalizeArabic,
+  detectMonth,
+  parseSenderPhone,
+  isAdminInGroupData,
+  fmtDate,
+  fmtNum,
+  sudanDayBounds,
+  sudanNow,
+} from "../_shared/whatsapp-command.ts";
 
 async function sendGreenApiDM(instanceId: string, token: string, chatId: string, message: string): Promise<boolean> {
   try {
@@ -87,30 +41,6 @@ async function sendGreenApiDM(instanceId: string, token: string, chatId: string,
   } catch { return false; }
 }
 
-function fmtDate(d: Date): string {
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `${dd}-${mm}-${d.getFullYear()}`;
-}
-
-function fmtNum(n: number): string {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n || 0);
-}
-
-// Sudan is UTC+2 (no DST). Compute [start,end] UTC bounds for a "Sudan day/month".
-const SUDAN_OFFSET_HOURS = 2;
-function sudanDayBounds(year: number, monthIdx: number, day: number): { startUTC: Date; endUTC: Date; dateStr: string } {
-  // Sudan midnight = UTC (day 00:00 - 2h) => previous day 22:00 UTC
-  const startUTC = new Date(Date.UTC(year, monthIdx, day, 0 - SUDAN_OFFSET_HOURS, 0, 0));
-  const endUTC = new Date(Date.UTC(year, monthIdx, day + 1, 0 - SUDAN_OFFSET_HOURS, 0, 0));
-  const dateStr = `${String(day).padStart(2,"0")}-${String(monthIdx+1).padStart(2,"0")}-${year}`;
-  return { startUTC, endUTC, dateStr };
-}
-function sudanNow(): { year: number; monthIdx: number; day: number } {
-  const now = new Date(Date.now() + SUDAN_OFFSET_HOURS * 3600 * 1000);
-  return { year: now.getUTCFullYear(), monthIdx: now.getUTCMonth(), day: now.getUTCDate() };
-}
-
 // Check if sender is a WhatsApp group admin via Green API getGroupData
 async function isWhatsappGroupAdmin(instanceId: string, token: string, groupChatId: string, senderDigits: string): Promise<boolean> {
   try {
@@ -122,19 +52,10 @@ async function isWhatsappGroupAdmin(instanceId: string, token: string, groupChat
       body: JSON.stringify({ groupId: groupChatId }),
     });
     if (!res.ok) return false;
-    const data = await res.json();
-    const participants = data?.participants || [];
-    const target = senderDigits.replace(/[^\d]/g, "");
-    for (const p of participants) {
-      const pid = String(p?.id || "").replace(/[^\d]/g, "");
-      const isAdmin = p?.isAdmin === true || p?.isSuperAdmin === true;
-      if (isAdmin && pid && (pid === target || pid.endsWith(target.slice(-9)) || target.endsWith(pid.slice(-9)))) {
-        return true;
-      }
-    }
-    return false;
+    return isAdminInGroupData(await res.json(), senderDigits);
   } catch { return false; }
 }
+
 
 async function tryHandleAdminCommand(sb: any, ctx: {
   organization_id: string; connection_id: string; instanceId: string; senderRaw: string; text: string; chatId: string;
