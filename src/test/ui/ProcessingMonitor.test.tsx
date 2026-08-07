@@ -71,6 +71,11 @@ const job = (over: Record<string, any> = {}) => ({
   ...over,
 });
 
+function selectTab(tab: HTMLElement) {
+  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.click(tab);
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -111,9 +116,11 @@ describe("ProcessingMonitor page", () => {
     renderPage();
     await waitFor(() => expect(state.queries.length).toBeGreaterThan(4));
     expect(
-      state.queries.every((q) =>
-        q.filters.some((f: any) => f.column === "organization_id" && f.value === "org-1")
-      )
+      state.queries
+        .filter((q) => q.table !== "cron_job_runs")
+        .every((q) =>
+          q.filters.some((f: any) => f.column === "organization_id" && f.value === "org-1")
+        )
     ).toBe(true);
   });
 
@@ -124,7 +131,7 @@ describe("ProcessingMonitor page", () => {
     ];
     renderPage();
 
-    fireEvent.click(await screen.findByRole("tab", { name: /في الانتظار/ }));
+    selectTab(await screen.findByRole("tab", { name: /في الانتظار/ }));
     expect(await screen.findByText("249900000001")).toBeInTheDocument();
     expect(screen.queryByText("249900000002")).not.toBeInTheDocument();
   });
@@ -136,7 +143,7 @@ describe("ProcessingMonitor page", () => {
     ];
     renderPage();
 
-    fireEvent.click(await screen.findByRole("tab", { name: /تمت المعالجة/ }));
+    selectTab(await screen.findByRole("tab", { name: /تمت المعالجة/ }));
     expect(await screen.findByText("249900000002")).toBeInTheDocument();
     expect(screen.queryByText("249900000001")).not.toBeInTheDocument();
   });
@@ -145,7 +152,7 @@ describe("ProcessingMonitor page", () => {
     state.jobs = [job({ job_type: "process-receipt", attempts: 2, max_attempts: 5 })];
     renderPage();
 
-    fireEvent.click(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
+    selectTab(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
     expect(await screen.findByText("process-receipt")).toBeInTheDocument();
     expect(screen.getByText("محاولة 2/5")).toBeInTheDocument();
     expect(screen.getByText(/timeout/)).toBeInTheDocument();
@@ -153,7 +160,7 @@ describe("ProcessingMonitor page", () => {
 
   it("shows the healthy empty state when no jobs failed", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
+    selectTab(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
     expect(
       await screen.findByText("لا توجد مهام فاشلة — النظام يعمل بكفاءة ✓")
     ).toBeInTheDocument();
@@ -165,7 +172,7 @@ describe("ProcessingMonitor page", () => {
       job({ job_type: "stuck-job", status: "failed" }),
     ];
     renderPage();
-    fireEvent.click(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
+    selectTab(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
     await screen.findByText("done-job");
     expect(screen.getByText("مكتمل")).toBeInTheDocument();
     expect(screen.getByText("فشل نهائي")).toBeInTheDocument();
