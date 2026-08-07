@@ -22,7 +22,10 @@ export default defineConfig({
         "src/components/transfers/InlineMemoEditor.tsx",
         "src/components/print-orders/PrintOrderStatusBadge.tsx",
         "src/components/print-orders/PrintOrdersTable.tsx",
+        "src/components/monitoring/CronJobsCard.tsx",
+        "src/pages/ProcessingMonitor.tsx",
       ],
+
       exclude: ["src/lib/mcp/**"],
       thresholds: { lines: 75, functions: 75, statements: 75, branches: 80 },
     },
