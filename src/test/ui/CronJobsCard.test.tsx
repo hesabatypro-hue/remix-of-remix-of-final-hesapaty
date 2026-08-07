@@ -1,17 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createSupabaseMock, type QueryState } from "./supabase-mock";
+import type { QueryState } from "./supabase-mock";
 
-const state = { rows: [] as any[], lastQuery: null as QueryState | null, error: null as any };
+const h = vi.hoisted(() => ({
+  state: { rows: [] as any[], lastQuery: null as any, error: null as any },
+}));
+const state = h.state as { rows: any[]; lastQuery: QueryState | null; error: any };
 
-const supabaseMock = createSupabaseMock((q) => {
-  state.lastQuery = q;
-  if (state.error) return { error: state.error };
-  return { data: state.rows };
+vi.mock("@/integrations/supabase/client", async () => {
+  const { createSupabaseMock } = await import("./supabase-mock");
+  return {
+    supabase: createSupabaseMock((q) => {
+      h.state.lastQuery = q;
+      if (h.state.error) return { error: h.state.error };
+      return { data: h.state.rows };
+    }),
+  };
 });
-
-vi.mock("@/integrations/supabase/client", () => ({ supabase: supabaseMock }));
 
 import { CronJobsCard } from "@/components/monitoring/CronJobsCard";
 
