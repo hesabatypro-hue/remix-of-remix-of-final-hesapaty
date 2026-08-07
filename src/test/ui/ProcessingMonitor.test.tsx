@@ -166,7 +166,7 @@ describe("ProcessingMonitor page", () => {
     ).toBeInTheDocument();
   });
 
-  it("hides the retry button for completed jobs only", async () => {
+  it("offers retry only for jobs that are not completed", async () => {
     state.jobs = [
       job({ job_type: "done-job", status: "completed" }),
       job({ job_type: "stuck-job", status: "failed" }),
@@ -174,11 +174,11 @@ describe("ProcessingMonitor page", () => {
     renderPage();
     selectTab(await screen.findByRole("tab", { name: /المهام الفاشلة/ }));
     await screen.findByText("done-job");
-    expect(screen.getByText("مكتمل")).toBeInTheDocument();
-    expect(screen.getByText("فشل نهائي")).toBeInTheDocument();
-    // one retry button for the failed job, none for the completed one
-    const rows = screen.getByText("stuck-job").closest("div.flex")!.parentElement!.parentElement!;
-    expect(rows.querySelectorAll("button")).toHaveLength(1);
+
+    const doneRow = screen.getByText("done-job").closest("div.p-3")!;
+    const stuckRow = screen.getByText("stuck-job").closest("div.p-3")!;
+    expect(doneRow.querySelectorAll("button")).toHaveLength(0);
+    expect(stuckRow.querySelectorAll("button")).toHaveLength(1);
   });
 
   it("includes the scheduled cron jobs report", async () => {
