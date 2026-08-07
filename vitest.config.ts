@@ -12,14 +12,21 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text-summary"],
-      // Scope: the logic layer under test (webhooks, retries, core helpers).
+      // Scope: logic layer (webhooks, retries, helpers) + the covered UI layer.
       include: [
         "supabase/functions/_shared/**/*.ts",
         "src/lib/**/*.ts",
+        "src/components/dashboard/StatCard.tsx",
+        "src/components/limits/LimitBadge.tsx",
+        "src/components/transfers/StatusBadge.tsx",
+        "src/components/transfers/InlineMemoEditor.tsx",
+        "src/components/print-orders/PrintOrderStatusBadge.tsx",
+        "src/components/print-orders/PrintOrdersTable.tsx",
       ],
       exclude: ["src/lib/mcp/**"],
-      thresholds: { lines: 50, functions: 50, statements: 50, branches: 50 },
+      thresholds: { lines: 75, functions: 75, statements: 75, branches: 80 },
     },
+
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
