@@ -12,6 +12,12 @@ const order = {
   created_at: "2026-01-05T09:00:00Z",
 } as any;
 
+function openMenu() {
+  const trigger = screen.getByRole("button");
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: "Enter" });
+}
+
 describe("PrintOrdersTable", () => {
   it("renders an empty state", () => {
     render(<PrintOrdersTable orders={[]} onStatusChange={() => {}} onDelete={() => {}} />);
@@ -29,10 +35,7 @@ describe("PrintOrdersTable", () => {
   it("offers the next statuses in the flow and triggers a change", () => {
     const onStatusChange = vi.fn();
     render(<PrintOrdersTable orders={[order]} onStatusChange={onStatusChange} onDelete={() => {}} />);
-    fireEvent.pointerDown(
-      screen.getByRole("button"),
-      new MouseEvent("pointerdown", { bubbles: true }) as any
-    );
+    openMenu();
     fireEvent.click(screen.getByText(/تغيير إلى: معتمد/));
     expect(onStatusChange).toHaveBeenCalledWith("o1", "approved");
   });
@@ -40,10 +43,7 @@ describe("PrintOrdersTable", () => {
   it("asks for confirmation before deleting", () => {
     const onDelete = vi.fn();
     render(<PrintOrdersTable orders={[order]} onStatusChange={() => {}} onDelete={onDelete} />);
-    fireEvent.pointerDown(
-      screen.getByRole("button"),
-      new MouseEvent("pointerdown", { bubbles: true }) as any
-    );
+    openMenu();
     fireEvent.click(screen.getByText("حذف"));
     expect(screen.getByText("تأكيد الحذف")).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("حذف").pop()!);
