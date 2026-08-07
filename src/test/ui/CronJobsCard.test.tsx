@@ -36,6 +36,12 @@ function run(over: Partial<Record<string, any>> = {}) {
   };
 }
 
+function badgeTexts() {
+  return Array.from(document.querySelectorAll("div.rounded-full")).map((el) =>
+    (el.textContent || "").replace(/\s+/g, " ").trim()
+  );
+}
+
 function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -81,20 +87,18 @@ describe("CronJobsCard", () => {
     ];
     renderCard();
 
+    await screen.findByText("إعادة محاولة المهام الفاشلة");
+    await waitFor(() => expect(badgeTexts()).toContain("نجاح 2"));
     // retry-failed-jobs: 2 success, 1 partial, 1 failed
-    expect(await screen.findByText("نجاح 2")).toBeInTheDocument();
-    expect(screen.getByText("جزئي 1")).toBeInTheDocument();
-    expect(screen.getByText("فشل 1")).toBeInTheDocument();
-    // cleanup-receipts: 1 success, 0 failures, no partial badge
-    expect(screen.getByText("نجاح 1")).toBeInTheDocument();
-    expect(screen.getByText("فشل 0")).toBeInTheDocument();
+    expect(badgeTexts()).toEqual(["نجاح 2", "جزئي 1", "فشل 1", "نجاح 1", "فشل 0"]);
   });
 
   it("does not leak one job's runs into the other job's card", async () => {
     state.rows = [run({ job_name: "cleanup-receipts", status: "failed", error_message: "storage down" })];
     renderCard();
-    expect(await screen.findByText("فشل 1")).toBeInTheDocument();
-    expect(screen.getByText("نجاح 0")).toBeInTheDocument();
+    await waitFor(() => expect(badgeTexts()).toContain("فشل 1"));
+    // retry-failed-jobs stays empty, cleanup-receipts owns the failure
+    expect(badgeTexts()).toEqual(["نجاح 0", "فشل 0", "نجاح 0", "فشل 1"]);
     // the untouched job still reads as never executed
     expect(screen.getAllByText(/لم يُشغّل بعد/)).toHaveLength(1);
   });
@@ -117,7 +121,8 @@ describe("CronJobsCard", () => {
   it("treats an unknown status as partial styling without crashing", async () => {
     state.rows = [run({ status: "weird" })];
     renderCard();
-    expect(await screen.findByText("نجاح 0")).toBeInTheDocument();
+    await waitFor(() => expect(badgeTexts()).toEqual(["نجاح 0", "فشل 0", "نجاح 0", "فشل 0"]));
+    expect(screen.getAllByText(/لم يُشغّل بعد/)).toHaveLength(1);
   });
 
   it("keeps rendering the card shell when the query fails", async () => {
