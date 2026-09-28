@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -21,9 +22,42 @@ import {
   Loader2,
   MessageCircle,
   RotateCcw,
+  Search,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CronJobsCard } from "@/components/monitoring/CronJobsCard";
+
+export const PAGE_SIZE = 10;
+
+type SortOrder = "newest" | "oldest";
+
+export function filterAndSortRows<T extends Record<string, any>>(
+  rows: T[],
+  search: string,
+  sortOrder: SortOrder,
+  fields: string[]
+): T[] {
+  const term = search.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter((row) =>
+        fields.some((f) => String(row[f] ?? "").toLowerCase().includes(term))
+      )
+    : rows.slice();
+
+  return filtered.sort((a, b) => {
+    const da = new Date(a.created_at).getTime();
+    const db = new Date(b.created_at).getTime();
+    return sortOrder === "newest" ? db - da : da - db;
+  });
+}
+
+export function paginate<T>(rows: T[], page: number, size = PAGE_SIZE): T[] {
+  return rows.slice((page - 1) * size, page * size);
+}
 
 type MessageStatus = "pending" | "processed" | "failed";
 
@@ -176,7 +210,7 @@ function MessageRow({ msg }: { msg: any }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-foreground truncate">{msg.from_number}</p>
+          <p data-testid="message-sender" className="text-sm font-medium text-foreground truncate">{msg.from_number}</p>
           <Badge variant={msg.processed ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
             {msg.processed ? "تمت المعالجة" : "في الانتظار"}
           </Badge>
@@ -239,7 +273,7 @@ function FailedJobRow({ job }: { job: any }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-foreground">{job.job_type}</p>
+          <p data-testid="job-type" className="text-sm font-medium text-foreground">{job.job_type}</p>
           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
             محاولة {job.attempts}/{job.max_attempts}
           </Badge>
@@ -267,17 +301,82 @@ function FailedJobRow({ job }: { job: any }) {
   );
 }
 
+function PaginationBar({
+  page,
+  totalPages,
+  total,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  onChange: (p: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 p-3 border-t border-border">
+      <p className="text-xs text-muted-foreground" data-testid="pagination-info">
+        صفحة {page} من {totalPages} — {total} عنصر
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="الصفحة السابقة"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          <ChevronRight className="w-4 h-4" />
+          السابق
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="الصفحة التالية"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+        >
+          التالي
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function ProcessingMonitor() {
   const { data: stats, isLoading: statsLoading } = useProcessingStats();
   const queryClient = useQueryClient();
   const { currentOrganization } = useAuth();
   const [activeTab, setActiveTab] = useState("all");
+  const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [page, setPage] = useState(1);
 
-  const msgStatus: MessageStatus = activeTab === "pending" ? "pending" : activeTab === "processed" ? "processed" : "pending";
   const { data: messages = [], isLoading: msgsLoading } = useRecentMessages(
     activeTab === "failed" ? "pending" : (activeTab as MessageStatus)
   );
   const { data: failedJobs = [], isLoading: jobsLoading } = useFailedJobs();
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, search, sortOrder]);
+
+  const visibleMessages = filterAndSortRows(messages as any[], search, sortOrder, [
+    "from_number",
+    "message_id",
+    "message_type",
+  ]);
+  const visibleJobs = filterAndSortRows(failedJobs as any[], search, sortOrder, [
+    "job_type",
+    "error_message",
+    "status",
+  ]);
+
+  const activeRows = activeTab === "failed" ? visibleJobs : visibleMessages;
+  const totalPages = Math.max(1, Math.ceil(activeRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedMessages = paginate(visibleMessages, currentPage);
+  const pagedJobs = paginate(visibleJobs, currentPage);
 
   // Realtime subscription
   useEffect(() => {
@@ -335,6 +434,33 @@ export default function ProcessingMonitor() {
 
 
 
+        {/* Search + sort controls */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              aria-label="بحث"
+              placeholder="ابحث برقم المرسل أو المعرف أو نص الخطأ..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pr-9"
+            />
+          </div>
+          <Button
+            variant="outline"
+            aria-label="ترتيب"
+            onClick={() => setSortOrder(sortOrder === "newest" ? "oldest" : "newest")}
+            className="gap-2 shrink-0"
+          >
+            {sortOrder === "newest" ? (
+              <ArrowDownWideNarrow className="w-4 h-4" />
+            ) : (
+              <ArrowUpNarrowWide className="w-4 h-4" />
+            )}
+            {sortOrder === "newest" ? "الأحدث أولاً" : "الأقدم أولاً"}
+          </Button>
+        </div>
+
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full grid grid-cols-3">
@@ -368,13 +494,25 @@ export default function ProcessingMonitor() {
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : messages.length === 0 ? (
+                ) : visibleMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <CheckCircle2 className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm">لا توجد رسائل معلقة — كل شيء تمت معالجته ✓</p>
+                    <p className="text-sm">
+                      {search.trim()
+                        ? "لا توجد نتائج مطابقة للبحث"
+                        : "لا توجد رسائل معلقة — كل شيء تمت معالجته ✓"}
+                    </p>
                   </div>
                 ) : (
-                  messages.map((msg) => <MessageRow key={msg.id} msg={msg} />)
+                  <>
+                    {pagedMessages.map((msg) => <MessageRow key={msg.id} msg={msg} />)}
+                    <PaginationBar
+                      page={currentPage}
+                      totalPages={totalPages}
+                      total={visibleMessages.length}
+                      onChange={setPage}
+                    />
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -390,14 +528,24 @@ export default function ProcessingMonitor() {
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : messages.length === 0 ? (
+                ) : visibleMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Image className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm">لم تتم معالجة أي صور بعد</p>
+                    <p className="text-sm">
+                      {search.trim() ? "لا توجد نتائج مطابقة للبحث" : "لم تتم معالجة أي صور بعد"}
+                    </p>
                     <p className="text-xs mt-1 opacity-70">ستظهر هنا بمجرد إرسال صور إيصالات عبر واتساب</p>
                   </div>
                 ) : (
-                  messages.map((msg) => <MessageRow key={msg.id} msg={msg} />)
+                  <>
+                    {pagedMessages.map((msg) => <MessageRow key={msg.id} msg={msg} />)}
+                    <PaginationBar
+                      page={currentPage}
+                      totalPages={totalPages}
+                      total={visibleMessages.length}
+                      onChange={setPage}
+                    />
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -413,13 +561,25 @@ export default function ProcessingMonitor() {
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : failedJobs.length === 0 ? (
+                ) : visibleJobs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <CheckCircle2 className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm">لا توجد مهام فاشلة — النظام يعمل بكفاءة ✓</p>
+                    <p className="text-sm">
+                      {search.trim()
+                        ? "لا توجد نتائج مطابقة للبحث"
+                        : "لا توجد مهام فاشلة — النظام يعمل بكفاءة ✓"}
+                    </p>
                   </div>
                 ) : (
-                  failedJobs.map((job) => <FailedJobRow key={job.id} job={job} />)
+                  <>
+                    {pagedJobs.map((job) => <FailedJobRow key={job.id} job={job} />)}
+                    <PaginationBar
+                      page={currentPage}
+                      totalPages={totalPages}
+                      total={visibleJobs.length}
+                      onChange={setPage}
+                    />
+                  </>
                 )}
               </CardContent>
             </Card>
