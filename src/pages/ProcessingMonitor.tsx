@@ -486,14 +486,24 @@ export default function ProcessingMonitor() {
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : messages.length === 0 ? (
+                ) : visibleMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Image className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm">لم تتم معالجة أي صور بعد</p>
+                    <p className="text-sm">
+                      {search.trim() ? "لا توجد نتائج مطابقة للبحث" : "لم تتم معالجة أي صور بعد"}
+                    </p>
                     <p className="text-xs mt-1 opacity-70">ستظهر هنا بمجرد إرسال صور إيصالات عبر واتساب</p>
                   </div>
                 ) : (
-                  messages.map((msg) => <MessageRow key={msg.id} msg={msg} />)
+                  <>
+                    {pagedMessages.map((msg) => <MessageRow key={msg.id} msg={msg} />)}
+                    <PaginationBar
+                      page={currentPage}
+                      totalPages={totalPages}
+                      total={visibleMessages.length}
+                      onChange={setPage}
+                    />
+                  </>
                 )}
               </CardContent>
             </Card>
