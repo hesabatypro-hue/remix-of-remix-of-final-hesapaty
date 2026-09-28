@@ -519,13 +519,25 @@ export default function ProcessingMonitor() {
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : failedJobs.length === 0 ? (
+                ) : visibleJobs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <CheckCircle2 className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm">لا توجد مهام فاشلة — النظام يعمل بكفاءة ✓</p>
+                    <p className="text-sm">
+                      {search.trim()
+                        ? "لا توجد نتائج مطابقة للبحث"
+                        : "لا توجد مهام فاشلة — النظام يعمل بكفاءة ✓"}
+                    </p>
                   </div>
                 ) : (
-                  failedJobs.map((job) => <FailedJobRow key={job.id} job={job} />)
+                  <>
+                    {pagedJobs.map((job) => <FailedJobRow key={job.id} job={job} />)}
+                    <PaginationBar
+                      page={currentPage}
+                      totalPages={totalPages}
+                      total={visibleJobs.length}
+                      onChange={setPage}
+                    />
+                  </>
                 )}
               </CardContent>
             </Card>
