@@ -210,7 +210,7 @@ function MessageRow({ msg }: { msg: any }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-foreground truncate">{msg.from_number}</p>
+          <p data-testid="message-sender" className="text-sm font-medium text-foreground truncate">{msg.from_number}</p>
           <Badge variant={msg.processed ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
             {msg.processed ? "تمت المعالجة" : "في الانتظار"}
           </Badge>
@@ -273,7 +273,7 @@ function FailedJobRow({ job }: { job: any }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-foreground">{job.job_type}</p>
+          <p data-testid="job-type" className="text-sm font-medium text-foreground">{job.job_type}</p>
           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
             محاولة {job.attempts}/{job.max_attempts}
           </Badge>
