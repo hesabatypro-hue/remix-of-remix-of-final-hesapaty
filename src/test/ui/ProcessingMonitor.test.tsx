@@ -348,7 +348,7 @@ describe("ProcessingMonitor — sorting", () => {
     selectTab(await screen.findByRole("tab", { name: /في الانتظار/ }));
     await screen.findByText("249900000011");
 
-    typeSearch("2499000000"); // matches 0000..0009
+    typeSearch("24990000000"); // matches 0000..0009
     await waitFor(() => expect(renderedNumbers()).toHaveLength(PAGE_SIZE));
     expect(renderedNumbers()[0]).toBe("249900000009");
 
