@@ -206,9 +206,9 @@ function makeMessages(count: number, over: Record<string, any> = {}) {
 }
 
 function renderedNumbers() {
-  return Array.from(document.querySelectorAll("p.text-sm.font-medium")).map(
-    (el) => el.textContent?.trim() ?? ""
-  );
+  return Array.from(
+    document.querySelectorAll('[data-testid="message-sender"]')
+  ).map((el) => el.textContent?.trim() ?? "");
 }
 
 function typeSearch(value: string) {
