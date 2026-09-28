@@ -301,6 +301,48 @@ function FailedJobRow({ job }: { job: any }) {
   );
 }
 
+function PaginationBar({
+  page,
+  totalPages,
+  total,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  onChange: (p: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 p-3 border-t border-border">
+      <p className="text-xs text-muted-foreground" data-testid="pagination-info">
+        صفحة {page} من {totalPages} — {total} عنصر
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="الصفحة السابقة"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          <ChevronRight className="w-4 h-4" />
+          السابق
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="الصفحة التالية"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+        >
+          التالي
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function ProcessingMonitor() {
   const { data: stats, isLoading: statsLoading } = useProcessingStats();
   const queryClient = useQueryClient();
