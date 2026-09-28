@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -21,9 +22,42 @@ import {
   Loader2,
   MessageCircle,
   RotateCcw,
+  Search,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CronJobsCard } from "@/components/monitoring/CronJobsCard";
+
+export const PAGE_SIZE = 10;
+
+type SortOrder = "newest" | "oldest";
+
+export function filterAndSortRows<T extends Record<string, any>>(
+  rows: T[],
+  search: string,
+  sortOrder: SortOrder,
+  fields: string[]
+): T[] {
+  const term = search.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter((row) =>
+        fields.some((f) => String(row[f] ?? "").toLowerCase().includes(term))
+      )
+    : rows.slice();
+
+  return filtered.sort((a, b) => {
+    const da = new Date(a.created_at).getTime();
+    const db = new Date(b.created_at).getTime();
+    return sortOrder === "newest" ? db - da : da - db;
+  });
+}
+
+export function paginate<T>(rows: T[], page: number, size = PAGE_SIZE): T[] {
+  return rows.slice((page - 1) * size, page * size);
+}
 
 type MessageStatus = "pending" | "processed" | "failed";
 
