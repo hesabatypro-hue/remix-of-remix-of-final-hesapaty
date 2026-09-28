@@ -392,6 +392,33 @@ export default function ProcessingMonitor() {
 
 
 
+        {/* Search + sort controls */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              aria-label="بحث"
+              placeholder="ابحث برقم المرسل أو المعرف أو نص الخطأ..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pr-9"
+            />
+          </div>
+          <Button
+            variant="outline"
+            aria-label="ترتيب"
+            onClick={() => setSortOrder(sortOrder === "newest" ? "oldest" : "newest")}
+            className="gap-2 shrink-0"
+          >
+            {sortOrder === "newest" ? (
+              <ArrowDownWideNarrow className="w-4 h-4" />
+            ) : (
+              <ArrowUpNarrowWide className="w-4 h-4" />
+            )}
+            {sortOrder === "newest" ? "الأحدث أولاً" : "الأقدم أولاً"}
+          </Button>
+        </div>
+
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full grid grid-cols-3">
