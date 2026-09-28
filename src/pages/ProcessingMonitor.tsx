@@ -306,12 +306,35 @@ export default function ProcessingMonitor() {
   const queryClient = useQueryClient();
   const { currentOrganization } = useAuth();
   const [activeTab, setActiveTab] = useState("all");
+  const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [page, setPage] = useState(1);
 
-  const msgStatus: MessageStatus = activeTab === "pending" ? "pending" : activeTab === "processed" ? "processed" : "pending";
   const { data: messages = [], isLoading: msgsLoading } = useRecentMessages(
     activeTab === "failed" ? "pending" : (activeTab as MessageStatus)
   );
   const { data: failedJobs = [], isLoading: jobsLoading } = useFailedJobs();
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, search, sortOrder]);
+
+  const visibleMessages = filterAndSortRows(messages as any[], search, sortOrder, [
+    "from_number",
+    "message_id",
+    "message_type",
+  ]);
+  const visibleJobs = filterAndSortRows(failedJobs as any[], search, sortOrder, [
+    "job_type",
+    "error_message",
+    "status",
+  ]);
+
+  const activeRows = activeTab === "failed" ? visibleJobs : visibleMessages;
+  const totalPages = Math.max(1, Math.ceil(activeRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedMessages = paginate(visibleMessages, currentPage);
+  const pagedJobs = paginate(visibleJobs, currentPage);
 
   // Realtime subscription
   useEffect(() => {
