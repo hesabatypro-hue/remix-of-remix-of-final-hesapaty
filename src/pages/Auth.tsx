@@ -285,22 +285,7 @@ export default function Auth() {
 
       logAuthNav("google_signin_start", { redirectTarget });
 
-      // 1. Direct Supabase OAuth with full browser redirect (works seamlessly on 100% of mobile browsers)
-      const { error: sbOAuthError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: redirectTarget,
-        },
-      });
-
-      if (!sbOAuthError) {
-        // Full page redirect to Google initiated
-        return;
-      }
-
-      console.warn("Direct Supabase OAuth error, trying Lovable cloud auth fallback:", sbOAuthError);
-
-      // 2. Fallback to Lovable Cloud Auth if direct OAuth is not enabled
+      // Managed Google sign-in via Lovable Cloud Auth (handles popup/redirect and session)
       const result = await lovable.auth.signInWithOAuth("google", {
         redirect_uri: redirectTarget,
       });
@@ -309,7 +294,7 @@ export default function Auth() {
         logAuthNav("google_signin_error", { meta: { message: result.error.message } });
         toast({
           title: "خطأ في تسجيل الدخول",
-          description: result.error.message || sbOAuthError?.message || "تعذر إتمام تسجيل الدخول عبر Google",
+          description: result.error.message || "تعذر إتمام تسجيل الدخول عبر Google",
           variant: "destructive",
         });
       }
