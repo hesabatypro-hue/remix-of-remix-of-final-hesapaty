@@ -182,7 +182,7 @@ serve(async (req) => {
     const aiResponse = await response.json();
     const content = aiResponse.choices?.[0]?.message?.content;
 
-    console.log('AI Response:', content);
+    console.log('AI response received, length:', content?.length ?? 0);
 
     let extractedData;
     try {
@@ -238,9 +238,10 @@ serve(async (req) => {
       // Service-role callers (e.g. process-receipt's internal pipeline) are
       // implicitly trusted and always operate within their own flow.
       if (!isServiceRoleCaller) {
-        const { data: isMember, error: membershipError } = await supabase.rpc('is_organization_member', {
+        const { data: isMember, error: membershipError } = await supabase.rpc('has_organization_role', {
           _user_id: authenticatedUserId,
           _organization_id: existingTransfer.organization_id,
+          _roles: ['owner', 'admin', 'manager'],
         });
 
         if (membershipError) {

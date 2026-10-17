@@ -176,7 +176,7 @@ async function tryHandleAdminCommand(sb: any, ctx: {
   }
   const privateChatId = `${senderDigits}@c.us`;
   const ok = await sendGreenApiDM(ctx.instanceId, token, privateChatId, msg);
-  await logToSystem(sb, ok ? "info" : "error", `Admin command reply ${ok ? "sent" : "FAILED"} to ${privateChatId}`, { intent: isMonthly ? "monthly" : "daily", revenue, confirmedCount, fraudCount, authSource }, ctx.organization_id, ctx.connection_id);
+  await logToSystem(sb, ok ? "info" : "error", `Admin command reply ${ok ? "sent" : "FAILED"}`, { intent: isMonthly ? "monthly" : "daily", revenue, confirmedCount, fraudCount, authSource }, ctx.organization_id, ctx.connection_id);
   return { handled: true, intent: isMonthly ? "monthly" : "daily" };
 }
 
