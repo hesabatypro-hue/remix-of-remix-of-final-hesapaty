@@ -1,0 +1,5 @@
+
+ALTER TABLE public.branches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transfers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_connections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_messages ENABLE ROW LEVEL SECURITY;

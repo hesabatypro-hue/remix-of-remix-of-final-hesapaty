@@ -1,0 +1,1 @@
+GRANT SELECT (investment_enabled), UPDATE (investment_enabled) ON public.organizations TO authenticated;
