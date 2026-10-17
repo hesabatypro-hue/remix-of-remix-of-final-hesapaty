@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Lock, Mail, User } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, User, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import logo from "@/assets/logo.png";
@@ -277,41 +277,59 @@ export default function Auth() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      // Preserve ?next= so OAuth consent flows return to the original URL
-      // after the Google round-trip lands the user back on /auth.
-      const redirectUri = safeNext
+      // Must ALWAYS redirect back to /auth so Auth.tsx receives and validates the session,
+      // then immediately forwards the user to /dashboard (or /onboarding for new accounts).
+      const redirectTarget = safeNext
         ? `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
-        : window.location.origin;
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: redirectUri,
+        : `${window.location.origin}/auth`;
+
+      logAuthNav("google_signin_start", { redirectTarget });
+
+      // 1. Direct Supabase OAuth with full browser redirect (works seamlessly on 100% of mobile browsers)
+      const { error: sbOAuthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectTarget,
+        },
       });
 
+      if (!sbOAuthError) {
+        // Full page redirect to Google initiated
+        return;
+      }
+
+      console.warn("Direct Supabase OAuth error, trying Lovable cloud auth fallback:", sbOAuthError);
+
+      // 2. Fallback to Lovable Cloud Auth if direct OAuth is not enabled
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: redirectTarget,
+      });
 
       if (result.error) {
         logAuthNav("google_signin_error", { meta: { message: result.error.message } });
         toast({
           title: "خطأ في تسجيل الدخول",
-          description: result.error.message,
+          description: result.error.message || sbOAuthError?.message || "تعذر إتمام تسجيل الدخول عبر Google",
           variant: "destructive",
         });
       }
 
       if (result.redirected) {
-        // Browser will redirect to Google — just return
         return;
       }
 
-      // Tokens received and session set — user is authenticated
-      logAuthNav("google_signin_success", {});
-      toast({
-        title: "تم تسجيل الدخول بنجاح",
-        description: "مرحباً بك",
-      });
+      if ((result as any).tokens) {
+        logAuthNav("google_signin_success", {});
+        toast({
+          title: "تم تسجيل الدخول بنجاح",
+          description: "مرحباً بك",
+        });
+      }
     } catch (error: any) {
       logAuthNav("google_signin_error", { meta: { message: error.message } });
       toast({
-        title: "خطأ",
-        description: error.message,
+        title: "خطأ في تسجيل الدخول",
+        description: error.message || "حدث خطأ غير متوقع",
         variant: "destructive",
       });
     } finally {
@@ -366,6 +384,17 @@ export default function Auth() {
           </Button>
           <Button variant="ghost" onClick={() => setMfaState(null)}>العودة لتسجيل الدخول</Button>
         </div>
+      </div>
+    );
+  }
+
+  // When user is authenticated (e.g. returned from Google OAuth), show smooth transition
+  if (user && (!userDataReady || authLoading)) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+        <h3 className="text-xl font-bold text-foreground mb-1">جاري تسجيل الدخول...</h3>
+        <p className="text-sm text-muted-foreground">يتم إعداد جلسة العمل والتوجه للوحة التحكم</p>
       </div>
     );
   }

@@ -1,4 +1,6 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import logo from "@/assets/logo.png";
@@ -18,6 +20,15 @@ import {
 } from "lucide-react";
 
 const Landing = () => {
+  const { user, isLoading, userDataReady } = useAuth();
+  const navigate = useNavigate();
+
+  // If already authenticated, redirect straight to dashboard
+  useEffect(() => {
+    if (user && !isLoading && userDataReady) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, isLoading, userDataReady, navigate]);
   const features = [
     {
       icon: MessageSquare,
@@ -138,12 +149,20 @@ const Landing = () => {
             <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors">الأسعار</a>
           </nav>
           <div className="flex items-center gap-3">
-            <Link to="/auth">
-              <Button variant="ghost">تسجيل الدخول</Button>
-            </Link>
-            <Link to="/auth?mode=signup">
-              <Button className="gradient-primary text-primary-foreground">ابدأ الآن</Button>
-            </Link>
+            {user ? (
+              <Link to="/dashboard">
+                <Button className="gradient-primary text-primary-foreground shadow-glow">لوحة التحكم</Button>
+              </Link>
+            ) : (
+              <>
+                <Link to="/auth">
+                  <Button variant="ghost">تسجيل الدخول</Button>
+                </Link>
+                <Link to="/auth?mode=signup">
+                  <Button className="gradient-primary text-primary-foreground">ابدأ الآن</Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
