@@ -36,7 +36,38 @@
   <meta name="twitter:description" content="نظام حساباتي لإدارة إيرادات الفروع ومتابعة التحويلات المالية عبر واتساب والذكاء الاصطناعي">
 </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback loader shown only while initial bundle loads or if JS fails -->
+      <div id="initial-loader" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; direction: rtl;">
+        <div style="text-align: center; max-width: 420px; padding: 24px; background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; margin: 16px;">
+          <div style="width: 48px; height: 48px; border: 4px solid #e2e8f0; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+          <h2 style="font-size: 1.25rem; font-weight: 700; color: #1e293b; margin-bottom: 8px;">حساباتي - جاري التحميل...</h2>
+          <p id="initial-loader-msg" style="font-size: 0.875rem; color: #64748b; line-height: 1.6;">جاري تهيئة النظام والاتصال بالخادم</p>
+        </div>
+      </div>
+      <style>
+        @keyframes spin { to { transform: rotate(360deg); } }
+      </style>
+    </div>
+
+    <script>
+      // Early Error Diagnostics: catch any script load failures before React mounts
+      window.addEventListener("error", function(e) {
+        var loaderMsg = document.getElementById("initial-loader-msg");
+        if (loaderMsg && document.getElementById("initial-loader")) {
+          loaderMsg.innerHTML = "<span style='color: #ef4444; font-weight: 600;'>تعذر تحميل حزم الموقع:</span><br/><div style='font-size: 11px; margin-top: 10px; direction: ltr; text-align: left; background: #fef2f2; border: 1px solid #fee2e2; padding: 8px; border-radius: 6px; color: #991b1b; max-height: 120px; overflow: auto;'>" + (e.message || "Script loading error") + "</div><br/><button onclick='location.reload(true)' style='padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-family: inherit;'>إعادة المحاولة</button>";
+        }
+      });
+
+      // Timeout Diagnostic: if page takes longer than 8 seconds, guide the user
+      setTimeout(function() {
+        var loaderMsg = document.getElementById("initial-loader-msg");
+        if (loaderMsg && document.getElementById("initial-loader")) {
+          loaderMsg.innerHTML = "استغرق التحميل وقتاً غير معتاد.<br/><br/><div style='font-size: 12px; color: #475569; text-align: right; line-height: 1.6; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 12px;'><b>الأسباب المحتملة:</b><br/>1. لم يتم ضبط متغيرات <code>VITE_SUPABASE_URL</code> و <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> في إعدادات الاستضافة (Vercel/Netlify).<br/>2. وجود كاش قديم بالمتصفح (اضغط <b>Ctrl + F5</b> للتحديث الجذري).</div><button onclick='location.reload(true)' style='padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-family: inherit;'>تحديث الصفحة</button>";
+        }
+      }, 8000);
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
