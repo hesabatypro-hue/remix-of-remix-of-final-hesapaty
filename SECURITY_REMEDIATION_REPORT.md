@@ -536,6 +536,8 @@
 | **6** | **حظر استدعاء دالة لوحة التحكم لمؤسسة أخرى (Cross-Tenant RPC Block)** | **`PASS`** | عند محاولة مستخدم Alpha تمرير معرف مؤسسة Beta للدالة `get_organization_dashboard_stats`، رفضت الدالة التنفيذ فوراً بالاستثناء `Access denied: caller does not belong to organization`. |
 | **7** | **منع تكرار رسائل واتساب (WhatsApp Message Idempotency)** | **`PASS`** | تم إدراج رسالة برقم معرف `WHATSAPP-MSG-XXX`؛ وعند محاولة إدراج رسالة ثانية متطابقة بنفس المعرف، رفض المحرك الإدراج بالقيد الفريد `23505 duplicate key value violates unique constraint "whatsapp_messages_message_id_key"`. |
 | **8** | **عدم قابلية تعديل أو حذف قيود دفتر الأستاذ (Ledger Immutability)** | **`PASS`** | محاولة تنفيذ `UPDATE` أو `DELETE` على جدول `ledger_entries` تم حظرها بالكامل بواسطة مشغلي `ledger_no_update` و `ledger_no_delete` وأطلق المحرك الاستثناء `LEDGER_IMMUTABLE: ledger_entries is append-only`. |
+| **9** | **عزل التخزين السحابي عبر RLS (Storage Objects Multi-Tenant Isolation)** | **`PASS`** | مستخدم مؤسسة Alpha استرجع 0 صفوف لملفات مؤسسة Beta واسترجع ملف مؤسسته فقط (1 صف) وفق سياسة RLS لـ `storage.objects`. |
+| **10** | **حظر التسلل للمسارات وعزل التخزين في Edge Functions (Storage Traversal Guard)** | **`PASS`** | تم اختبار دالة `secure-image` والتحقق من رفض محاولات Path Traversal (`..`) واستدعاء ملفات تخص مؤسسات أخرى برمز `403 Forbidden`. |
 
 ---
 

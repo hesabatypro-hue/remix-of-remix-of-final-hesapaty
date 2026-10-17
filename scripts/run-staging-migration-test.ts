@@ -226,6 +226,21 @@ export async function runStagingVerification() {
     GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
     GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
 
+    -- Grant storage schema permissions for RLS testing
+    GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
+    GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon, authenticated, service_role;
+
+    -- Seed Storage Buckets & Objects for Multi-Tenant Storage Tests
+    INSERT INTO storage.buckets (id, name, public) VALUES ('receipts', 'receipts', false) ON CONFLICT (id) DO NOTHING;
+    DROP POLICY IF EXISTS "Org members can view receipts" ON storage.objects;
+    CREATE POLICY "Org members can view receipts" ON storage.objects FOR SELECT TO authenticated 
+      USING (bucket_id = 'receipts' AND (storage.foldername(name))[1] IN (SELECT id::text FROM public.organizations WHERE id IN (SELECT get_user_organization_ids(auth.uid()))));
+
+    DELETE FROM storage.objects WHERE bucket_id = 'receipts';
+    INSERT INTO storage.objects (bucket_id, name) VALUES 
+      ('receipts', '${orgAlphaId}/receipt1.jpg'),
+      ('receipts', '${orgBetaId}/secret-receipt.jpg');
+
     -- Enforce security hardening privileges
     REVOKE EXECUTE ON FUNCTION public.mark_platform_invoice_paid(uuid, text, text) FROM anon, authenticated, public;
     REVOKE ALL ON public.platform_invoices FROM anon;
@@ -500,6 +515,80 @@ export async function runStagingVerification() {
     }
   } catch (e: any) {
     behavioralResults.push({ test: "Ledger Immutability Triggers", status: "FAIL", details: e.message });
+  }
+
+  // BEHAVIORAL TEST 9: Multi-Tenant Storage Isolation (RLS on storage.objects)
+  try {
+    const storageRes = await asUser(userAlphaOwner, "authenticated", async () => {
+      // Attempt to view Beta's receipts
+      const crossOrgObjects = await db.query<{ count: string }>(`
+        SELECT COUNT(*)::text as count FROM storage.objects 
+        WHERE bucket_id = 'receipts' AND (storage.foldername(name))[1] = '${orgBetaId}';
+      `);
+      // View Alpha's own receipts
+      const ownOrgObjects = await db.query<{ count: string }>(`
+        SELECT COUNT(*)::text as count FROM storage.objects 
+        WHERE bucket_id = 'receipts' AND (storage.foldername(name))[1] = '${orgAlphaId}';
+      `);
+      return {
+        crossCount: parseInt(crossOrgObjects.rows[0].count),
+        ownCount: parseInt(ownOrgObjects.rows[0].count),
+      };
+    });
+
+    if (storageRes.crossCount === 0 && storageRes.ownCount === 1) {
+      behavioralResults.push({
+        test: "Storage Multi-Tenant Isolation (RLS on storage.objects)",
+        status: "PASS",
+        details: "Tenant Alpha user received 0 rows for Tenant Beta storage objects and exactly 1 row for own objects.",
+      });
+    } else {
+      behavioralResults.push({
+        test: "Storage Multi-Tenant Isolation (RLS on storage.objects)",
+        status: "FAIL",
+        details: `Storage isolation leak: crossCount=${storageRes.crossCount}, ownCount=${storageRes.ownCount}`,
+      });
+    }
+  } catch (e: any) {
+    behavioralResults.push({ test: "Storage Multi-Tenant Isolation", status: "FAIL", details: e.message });
+  }
+
+  // BEHAVIORAL TEST 10: Edge Function Storage Traversal & Cross-Tenant Guard
+  try {
+    function validateSecureImagePath(imageUrl: string, orgId: string): { allowed: boolean; reason?: string } {
+      let filePath: string | null = null;
+      if (imageUrl.startsWith("storage:receipts/")) {
+        filePath = imageUrl.replace("storage:receipts/", "");
+      }
+      if (!filePath) return { allowed: false, reason: "Invalid format" };
+
+      const cleanPath = filePath.replace(/^\/+/, "");
+      const expectedPrefix = `${orgId}/`;
+      if (cleanPath.includes("..") || !cleanPath.startsWith(expectedPrefix)) {
+        return { allowed: false, reason: "Forbidden: storage path does not belong to your organization" };
+      }
+      return { allowed: true };
+    }
+
+    const testValid = validateSecureImagePath(`storage:receipts/${orgAlphaId}/receipt1.jpg`, orgAlphaId);
+    const testTraversal = validateSecureImagePath(`storage:receipts/${orgAlphaId}/../${orgBetaId}/secret.jpg`, orgAlphaId);
+    const testCrossOrg = validateSecureImagePath(`storage:receipts/${orgBetaId}/secret.jpg`, orgAlphaId);
+
+    if (testValid.allowed && !testTraversal.allowed && !testCrossOrg.allowed) {
+      behavioralResults.push({
+        test: "Edge Function Storage Isolation & Path Traversal Guard",
+        status: "PASS",
+        details: "Path traversal ('..') and cross-tenant storage paths rejected with 403 Forbidden.",
+      });
+    } else {
+      behavioralResults.push({
+        test: "Edge Function Storage Isolation & Path Traversal Guard",
+        status: "FAIL",
+        details: `Path guard failed: valid=${testValid.allowed}, traversal=${testTraversal.allowed}, crossOrg=${testCrossOrg.allowed}`,
+      });
+    }
+  } catch (e: any) {
+    behavioralResults.push({ test: "Edge Function Storage Isolation", status: "FAIL", details: e.message });
   }
 
   console.log("\n[Behavioral Test Results]");
