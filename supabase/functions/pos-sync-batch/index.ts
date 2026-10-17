@@ -90,6 +90,18 @@ serve(async (req) => {
 
 
 
+        // 🔒 Branch must belong to the same organization
+        const { data: branchRow } = await sb
+          .from("branches")
+          .select("id")
+          .eq("id", q.branch_id)
+          .eq("organization_id", q.organization_id)
+          .maybeSingle();
+        if (!branchRow) {
+          failed.push({ id: q.client_local_id, error: "branch_org_mismatch" });
+          continue;
+        }
+
         const status = q.payment_method === "bank_transfer" ? "pending_image" : "confirmed";
         const { data: inv, error: invErr } = await sb
           .from("pos_invoices")
@@ -109,7 +121,14 @@ serve(async (req) => {
           .single();
         if (invErr) throw invErr;
 
-        const items = q.items.map((it) => ({ ...it, invoice_id: (inv as any).id }));
+        const items = q.items.map((it) => ({
+          invoice_id: (inv as any).id,
+          product_id: it.product_id ?? null,
+          product_name: String(it.product_name ?? "").slice(0, 300),
+          quantity: Number(it.quantity),
+          unit_price: Number(it.unit_price),
+          subtotal: Number(it.subtotal),
+        }));
         const { error: itemsErr } = await sb.from("pos_invoice_items").insert(items);
         if (itemsErr) throw itemsErr;
 

@@ -206,8 +206,8 @@ serve(async (req) => {
                   client_memo: updatedMemo.substring(0, 2000),
                 }).eq("id", transfer.id);
                 await logToSystem(sb, "info",
-                  `Delayed memo linked: transfer=${transfer.id}, text="${cleanText.substring(0, 100)}"`,
-                  { transferId: transfer.id, fromNumber, newText: cleanText },
+                  `Delayed memo linked: transfer=${transfer.id}`,
+                  { transferId: transfer.id, textLength: cleanText.length },
                   connection.organization_id, connection.id
                 );
               }

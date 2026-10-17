@@ -524,7 +524,7 @@ async function processMessage(sb: any, msg: any): Promise<{ status: string; mess
       await sb.from("system_logs").insert({
         level: "info", source: "decision-engine",
         message: `Rejected: confidence=${analysis.confidence}, isReceipt=${analysis.isReceipt}, amount=${analysis.amount}`,
-        metadata: { messageId: msg.id, analysis, decision: "rejected" },
+        metadata: { messageId: msg.id, confidence: analysis.confidence, isReceipt: analysis.isReceipt, amount: analysis.amount, decision: "rejected" },
         organization_id: connection.organization_id,
         connection_id: connection.id,
       });
@@ -642,7 +642,7 @@ async function processMessage(sb: any, msg: any): Promise<{ status: string; mess
       level: fraud.score >= 50 ? "warn" : "info",
       source: "decision-engine",
       message: `${fraudForceReview ? "⚠️ Fraud flagged" : needsReview ? "Needs review" : "Auto-approved"}: confidence=${analysis.confidence}, amount=${analysis.amount}, fraud=${fraud.score}, linked=${!!whatsappText}`,
-      metadata: { messageId: msg.id, analysis, fraud, decision: needsReview ? "pending_review" : "auto_approved", imageHash, whatsappLinked: !!whatsappText, transaction_id: txId },
+      metadata: { messageId: msg.id, confidence: analysis.confidence, amount: analysis.amount, fraud, decision: needsReview ? "pending_review" : "auto_approved", imageHash, whatsappLinked: !!whatsappText, transaction_id: txId },
       organization_id: connection.organization_id,
       connection_id: connection.id,
     });
