@@ -1,0 +1,28 @@
+{
+  "name": "حساباتي سكانر - Hesapaty Scanner",
+  "short_name": "سكانر",
+  "description": "ماسح الإشعارات البنكية الميداني والتحقق الفوري لنقاط البيع والفروع",
+  "start_url": "/scanner",
+  "scope": "/scanner",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#090d16",
+  "theme_color": "#10b981",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"]
+}

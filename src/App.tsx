@@ -49,6 +49,7 @@ const POS = lazy(() => import("./pages/POS"));
 const Products = lazy(() => import("./pages/Products"));
 const Inventory = lazy(() => import("./pages/Inventory"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
+const Scanner = lazy(() => import("./pages/Scanner"));
 
 const queryClient = new QueryClient();
 
@@ -164,6 +165,9 @@ const App = () => (
               } />
               <Route path="/inventory" element={
                 <ProtectedRoute><Inventory /></ProtectedRoute>
+              } />
+              <Route path="/scanner" element={
+                <ProtectedRoute><Scanner /></ProtectedRoute>
               } />
               <Route path="/index" element={<Index />} />
               <Route path="*" element={<NotFound />} />

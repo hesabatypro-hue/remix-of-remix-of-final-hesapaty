@@ -23,6 +23,7 @@ import {
   Settings,
   CreditCard,
   ShieldCheck,
+  Camera,
 } from "lucide-react";
 import type { ModuleDefinition, NavItem } from "./types";
 
@@ -31,6 +32,7 @@ const POSDashboard = lazy(() => import("./pos/dashboard/POSDashboard"));
 
 /** Shared nav items appended to every module's sidebar. */
 export const SHARED_NAV_ITEMS: NavItem[] = [
+  { path: "/scanner", label: "حساباتي سكانر", icon: Camera },
   { path: "/reconciliation", label: "فحص المطابقة", icon: ShieldCheck },
   { path: "/users", label: "المستخدمين", icon: Users },
   { path: "/subscription-invoices", label: "فواتير الاشتراك", icon: CreditCard },

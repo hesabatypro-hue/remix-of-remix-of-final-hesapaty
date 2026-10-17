@@ -46,6 +46,7 @@ export const SHARED_PATHS: string[] = [
   "/users",
   "/branches",
   "/subscription-invoices",
+  "/scanner",
   "/select-organization",
   "/onboarding",
 ];
