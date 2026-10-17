@@ -9,7 +9,7 @@ CREATE OR REPLACE FUNCTION public.mark_platform_invoice_paid(
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   _org_id uuid;
@@ -40,7 +40,7 @@ GRANT EXECUTE ON FUNCTION public.mark_platform_invoice_paid(uuid, text, text) TO
 
 -- 2) Fix soft_delete_all_transfers: enforce owner or admin role (prevent viewer/manager privilege escalation)
 CREATE OR REPLACE FUNCTION public.soft_delete_all_transfers(_organization_id UUID)
-RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE _count integer;
 BEGIN
   IF NOT public.has_organization_role(auth.uid(), _organization_id, ARRAY['owner'::public.app_role, 'admin'::public.app_role]) THEN
@@ -62,12 +62,16 @@ $$;
 
 
 -- 3) Fix branch limit counting: filter out soft-deleted branches (is_deleted = false)
+-- and lock organization row to prevent concurrent race condition bypasses
 CREATE OR REPLACE FUNCTION public.check_branch_limit()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   current_count int;
   max_allowed int;
 BEGIN
+  -- Prevent concurrent branch insertion limit bypass by locking organization row
+  PERFORM 1 FROM public.organizations WHERE id = NEW.organization_id FOR UPDATE;
+
   SELECT COUNT(*)::int INTO current_count
     FROM public.branches
    WHERE organization_id = NEW.organization_id
@@ -86,14 +90,14 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.can_add_branch(_organization_id UUID)
-RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT (SELECT COUNT(*)::int FROM public.branches WHERE organization_id = _organization_id AND is_deleted = false) <
          (SELECT max_branches FROM public.organizations WHERE id = _organization_id);
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_organization_limits(_organization_id UUID)
 RETURNS TABLE(max_branches int, current_branches bigint, max_users int, current_users bigint, plan_type text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT o.max_branches,
          (SELECT COUNT(*) FROM public.branches WHERE organization_id = _organization_id AND is_deleted = false),
          o.max_users,
@@ -126,7 +130,7 @@ CREATE POLICY "Managers and above can update transfers"
 
 -- 5) Protect confirmed transfers from unauthorized deletion: only owners and admins can soft-delete confirmed transfers
 CREATE OR REPLACE FUNCTION public.prevent_confirmed_transfer_edit()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF OLD.is_confirmed = true THEN
     -- If trying to soft-delete a confirmed transfer, verify caller is owner or admin

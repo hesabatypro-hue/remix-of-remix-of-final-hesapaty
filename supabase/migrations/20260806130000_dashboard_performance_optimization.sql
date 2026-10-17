@@ -23,8 +23,8 @@ DECLARE
   _pending_transfers int := 0;
   _confirmed_transfers int := 0;
 BEGIN
-  -- Strict multi-tenant verification
-  IF NOT public.has_organization_role(auth.uid(), _organization_id, ARRAY['owner', 'admin', 'manager', 'cashier', 'accountant', 'viewer']) THEN
+  -- Strict multi-tenant verification: verify caller is an active member of this organization
+  IF NOT public.is_organization_member(auth.uid(), _organization_id) THEN
     RAISE EXCEPTION 'Access denied: caller does not belong to organization';
   END IF;
 

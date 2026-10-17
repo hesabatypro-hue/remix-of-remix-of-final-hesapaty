@@ -153,8 +153,26 @@ export default function Auth() {
         const result = await signIn(formData.email, formData.password);
         if (result.error) {
           logAuthNav("signin_error", { meta: { message: result.error.message } });
+
+          // Handle server-side 429 rate limit from Supabase Auth
+          const isRateLimited = (result.error as any).status === 429 ||
+            result.error.message.toLowerCase().includes("rate limit") ||
+            result.error.message.toLowerCase().includes("too many requests");
+
+          if (isRateLimited) {
+            toast({
+              title: "تم تجاوز حد المحاولات المسموح به",
+              description: "تم تعليق المحاولات مؤقتاً لحماية أمان الحساب. يرجى الانتظار عدة دقائق قبل المحاولة مجدداً.",
+              variant: "destructive",
+            });
+            return;
+          }
+
           if (result.error.message.includes('Invalid login credentials')) {
-            // SECURITY: Track failed attempts
+            // SECURITY: Artificial micro-delay to deter rapid browser-side brute force
+            await new Promise(r => setTimeout(r, 600));
+
+            // Track client-side failed attempts
             const attempts = loginAttempts + 1;
             setLoginAttempts(attempts);
             try {
@@ -174,13 +192,13 @@ export default function Auth() {
               }
               toast({
                 title: "الحساب مقفل مؤقتاً",
-                description: "5 محاولات فاشلة. سيتم فتح الحساب بعد 5 دقائق.",
+                description: "تم تجاوز عدد المحاولات المسموح بها. سيتم فتح إمكانية الدخول بعد 5 دقائق.",
                 variant: "destructive",
               });
             } else {
               toast({
                 title: "خطأ في تسجيل الدخول",
-                description: `البريد الإلكتروني أو كلمة المرور غير صحيحة. المحاولة ${attempts}/${MAX_ATTEMPTS}`,
+                description: `بيانات الاعتماد المدخلة غير صحيحة. المحاولة ${attempts}/${MAX_ATTEMPTS}`,
                 variant: "destructive",
               });
             }
@@ -219,14 +237,15 @@ export default function Auth() {
         if (error) {
           logAuthNav("signup_error", { meta: { message: error.message } });
           if (error.message.includes('already registered')) {
+            // SECURITY: Generic guidance without explicit account confirmation
             toast({
-              title: "خطأ في التسجيل",
-              description: "هذا البريد الإلكتروني مسجل مسبقاً",
+              title: "تعذر إتمام التسجيل",
+              description: "إذا كان لديك حساب مسجل بالفعل بهذا البريد، يرجى تسجيل الدخول مباشرة.",
               variant: "destructive",
             });
           } else {
             toast({
-              title: "خطأ",
+              title: "خطأ في التسجيل",
               description: error.message,
               variant: "destructive",
             });

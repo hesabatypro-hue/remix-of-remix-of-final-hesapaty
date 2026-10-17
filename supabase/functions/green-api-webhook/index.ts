@@ -459,7 +459,7 @@ serve(async (req) => {
     const downloadUrl = messageData.fileMessageData?.downloadUrl || messageData.imageMessage?.downloadUrl || null;
     const isImage = messageType === "imageMessage";
 
-    await sb.from("whatsapp_messages").insert({
+    const { error: insertErr } = await sb.from("whatsapp_messages").insert({
       whatsapp_connection_id: connection.id,
       organization_id: connection.organization_id,
       message_id: messageId,
@@ -470,6 +470,15 @@ serve(async (req) => {
       media_url: downloadUrl ? String(downloadUrl).substring(0, 1000) : null,
       processed: !isImage,
     });
+
+    if (insertErr) {
+      if (insertErr.code === "23505" || insertErr.message?.includes("duplicate")) {
+        return new Response(JSON.stringify({ status: "duplicate", message: "Concurrent duplicate ignored" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw insertErr;
+    }
 
     await sb.from("whatsapp_connections")
       .update({ last_sync_at: new Date().toISOString(), status: "connected" })

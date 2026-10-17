@@ -89,9 +89,19 @@ serve(async (req) => {
     }
 
     if (filePath) {
+      // SECURITY: Path traversal and Cross-Tenant storage isolation check
+      const cleanPath = filePath.replace(/^\/+/, "");
+      const expectedPrefix = `${transfer.organization_id}/`;
+      if (cleanPath.includes("..") || !cleanPath.startsWith(expectedPrefix)) {
+        console.warn(`[secure-image] Blocked cross-tenant storage access attempt. Org: ${transfer.organization_id}, Path: ${cleanPath}`);
+        return new Response(JSON.stringify({ error: "Forbidden: storage path does not belong to your organization" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const { data: signedData, error: signError } = await adminClient
         .storage.from("receipts")
-        .createSignedUrl(filePath, 120); // 2 minutes
+        .createSignedUrl(cleanPath, 120); // 2 minutes
 
       if (signError || !signedData?.signedUrl) {
         return new Response(JSON.stringify({ error: "Failed to generate signed URL" }), {
