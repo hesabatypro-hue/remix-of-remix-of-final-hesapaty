@@ -210,7 +210,7 @@ export const ScannerDashboard: React.FC = () => {
 
   return (
     <div className="relative w-full h-[100dvh] flex flex-col bg-black overflow-hidden select-none">
-      {/* Top Header */}
+      {/* Top Floating Glass HUD */}
       <ScannerHeader
         organizationName={currentOrganization?.name}
         branches={branches}
@@ -219,6 +219,9 @@ export const ScannerDashboard: React.FC = () => {
         isStandalone={isStandalone}
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled((prev) => !prev)}
+        supportsTorch={supportsTorch}
+        isTorchOn={isTorchOn}
+        onToggleTorch={toggleTorch}
         cashierName={userProfile?.full_name || user?.email}
       />
 
@@ -269,16 +272,13 @@ export const ScannerDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* Bottom Camera Controls Bar (visible when streaming) */}
+      {/* Floating Bottom Shutter Deck (visible when streaming) */}
       {hasPermission !== false && phase === 'streaming' && (
         <CameraControls
           onCapture={handleCapture}
           isCapturing={phase === 'capturing'}
           isStreaming={isStreaming}
           onFlipCamera={flipCamera}
-          supportsTorch={supportsTorch}
-          isTorchOn={isTorchOn}
-          onToggleTorch={toggleTorch}
           onFileSelected={handleFileSelected}
         />
       )}
