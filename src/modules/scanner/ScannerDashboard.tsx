@@ -19,7 +19,7 @@ import { PermissionDeniedView } from './components/PermissionDeniedView';
 import type { CapturedImagePayload, ScannerPhase } from './types';
 
 export const ScannerDashboard: React.FC = () => {
-  const { currentOrganization, user, userProfile } = useAuth();
+  const { currentOrganization, user, profile: userProfile } = useAuth();
   const { branches } = useBranches();
   const { toast } = useToast();
 
@@ -276,7 +276,7 @@ export const ScannerDashboard: React.FC = () => {
       {hasPermission !== false && phase === 'streaming' && (
         <CameraControls
           onCapture={handleCapture}
-          isCapturing={phase === 'capturing'}
+          isCapturing={false}
           isStreaming={isStreaming}
           onFlipCamera={flipCamera}
           onFileSelected={handleFileSelected}

@@ -15,6 +15,7 @@ export type AuthNavEvent =
   | "auth_already_logged_in"
   | "signin_error"
   | "signup_error"
+  | "google_signin_start"
   | "google_signin_success"
   | "google_signin_error"
   | "signin_mfa_required";
