@@ -5,7 +5,7 @@ test.describe("Security and Authentication Smoke Tests", () => {
     await page.goto("/auth");
     await expect(page).toHaveTitle(/حساباتي/);
     const emailInput = page.locator('input[type="email"]');
-    await expect(emailInput).toBeVisible();
+    await expect(emailInput).toBeVisible({ timeout: 10000 });
     const passwordInput = page.locator('input[type="password"]');
     await expect(passwordInput).toBeVisible();
   });

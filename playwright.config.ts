@@ -11,6 +11,12 @@ export default defineConfig({
     baseURL: "http://localhost:8080",
     trace: "on-first-retry",
   },
+  webServer: {
+    command: "npm run dev",
+    port: 8080,
+    reuseExistingServer: true,
+    timeout: 30000,
+  },
   projects: [
     {
       name: "chromium",
