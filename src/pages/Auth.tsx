@@ -283,7 +283,7 @@ export default function Auth() {
         ? `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
         : `${window.location.origin}/auth`;
 
-      logAuthNav("google_signin_start", { redirectTarget });
+      logAuthNav("google_signin_start", { meta: { redirectTarget } });
 
       // Managed Google sign-in via Lovable Cloud Auth (handles popup/redirect and session)
       const result = await lovable.auth.signInWithOAuth("google", {
