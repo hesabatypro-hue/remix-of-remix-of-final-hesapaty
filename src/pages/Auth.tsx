@@ -87,7 +87,14 @@ export default function Auth() {
   useEffect(() => {
     if (user && !authLoading && userDataReady) {
       const from = (location.state as any)?.from?.pathname;
-      const to = safeNext || from || '/dashboard';
+      let storedNext: string | null = null;
+      try {
+        storedNext = sessionStorage.getItem("oauth_next");
+        if (storedNext) sessionStorage.removeItem("oauth_next");
+      } catch {
+        // ignore storage errors
+      }
+      const to = safeNext || storedNext || from || '/dashboard';
       if (to === '/dashboard') {
         logAuthNav('redirect_to_dashboard', {
           from: location.pathname + location.search,
@@ -277,11 +284,17 @@ export default function Auth() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      // Must ALWAYS redirect back to /auth so Auth.tsx receives and validates the session,
-      // then immediately forwards the user to /dashboard (or /onboarding for new accounts).
-      const redirectTarget = safeNext
-        ? `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
-        : `${window.location.origin}/auth`;
+      // Use a clean same-origin redirect (no query params) so the OAuth callback
+      // is parsed correctly on mobile full-page redirects. The intended
+      // destination is stored separately and applied once the session is set.
+      const redirectTarget = window.location.origin;
+      if (safeNext) {
+        try {
+          sessionStorage.setItem("oauth_next", safeNext);
+        } catch {
+          // ignore storage errors
+        }
+      }
 
       logAuthNav("google_signin_start", { meta: { redirectTarget } });
 
