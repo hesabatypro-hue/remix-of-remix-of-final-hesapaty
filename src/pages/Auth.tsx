@@ -131,11 +131,16 @@ export default function Auth() {
 
   // 2. Redirect authenticated users cleanly
   useEffect(() => {
-    if (user && !authLoading && userDataReady) {
-      const from = (location.state as any)?.from?.pathname;
+      let storedNext: string | null = null;
+      try {
+        storedNext = sessionStorage.getItem("oauth_next");
+        if (storedNext) sessionStorage.removeItem("oauth_next");
+      } catch {
+        // ignore storage errors
+      }
       // If user has no organizations, route them straight to onboarding
       const defaultRoute = userRoles.length === 0 ? '/onboarding' : '/dashboard';
-      const to = safeNext || (from && from !== '/auth' ? from : defaultRoute);
+      const to = safeNext || storedNext || (from && from !== '/auth' ? from : defaultRoute);
       if (to === '/dashboard') {
         logAuthNav('redirect_to_dashboard', {
           from: location.pathname + location.search,
@@ -325,13 +330,19 @@ export default function Auth() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      // Must ALWAYS redirect back to /auth so Auth.tsx receives and validates the session,
-      // then forwards the user to /dashboard (or /onboarding for new accounts).
-      const redirectTarget = safeNext
-        ? `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
-        : `${window.location.origin}/auth`;
+      // Use a clean same-origin redirect (no query params) so the OAuth callback
+      // is parsed correctly on mobile full-page redirects. The intended
+      // destination is stored separately and applied once the session is set.
+      const redirectTarget = window.location.origin;
+      if (safeNext) {
+        try {
+          sessionStorage.setItem("oauth_next", safeNext);
+        } catch {
+          // ignore storage errors
+        }
+      }
 
-      logAuthNav("google_signin_start", { redirectTarget });
+      logAuthNav("google_signin_start", { meta: { redirectTarget } });
 
       // 1. Primary: Lovable Cloud Auth broker (handles iframe popup + web_message as well as mobile/desktop redirect)
       const result = await lovable.auth.signInWithOAuth("google", {

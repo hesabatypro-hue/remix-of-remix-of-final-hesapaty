@@ -124,7 +124,7 @@ var list_recent_transfers_default = defineTool3({
 });
 
 // src/lib/mcp/index.ts
-var projectRef = "vqfkggdvqfcvakuypkty";
+var projectRef = "fqmdtbknbjahmvwseqzr";
 var mcp_default = defineMcp({
   name: "hesabaty-mcp",
   title: "Hesabaty PRO",
