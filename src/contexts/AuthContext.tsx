@@ -75,10 +75,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (profileData) {
         setProfile(profileData);
+      } else {
+        // Auto-heal missing profile (e.g. if database trigger was missing on auth.users)
+        try {
+          const { data: authUserData } = await supabase.auth.getUser();
+          const currentUser = authUserData?.user;
+          if (currentUser && currentUser.id === userId) {
+            const fallbackName = currentUser.user_metadata?.full_name || 
+                                 currentUser.user_metadata?.name || 
+                                 currentUser.email?.split('@')[0] || 
+                                 'مستخدم';
+            const { data: createdProfile } = await supabase
+              .from('profiles')
+              .upsert({
+                id: userId,
+                email: currentUser.email || '',
+                full_name: fallbackName,
+              })
+              .select()
+              .maybeSingle();
+            if (createdProfile) {
+              setProfile(createdProfile);
+            }
+          }
+        } catch (profileErr) {
+          console.warn('Could not auto-create profile:', profileErr);
+        }
       }
 
       // Fetch user roles with organizations
-      const { data: rolesData } = await supabase
+      const { data: rolesData, error: rolesError } = await supabase
         .from('user_roles')
         .select(`
           organization_id,
@@ -102,33 +128,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         `)
         .eq('user_id', userId);
 
-      if (!rolesData) {
+      if (rolesError) {
+        console.error('Error fetching user roles:', rolesError);
         setUserRoles([]);
         setCurrentOrganization(null);
         return;
       }
 
-      if (rolesData.length > 0) {
-        const roles = rolesData.map((r: any) => ({
+      if (!rolesData || rolesData.length === 0) {
+        setUserRoles([]);
+        setCurrentOrganization(null);
+        return;
+      }
+
+      const validRoles = rolesData
+        .filter((r: any) => r && r.organization)
+        .map((r: any) => ({
           organization_id: r.organization_id,
           role: r.role,
           branch_id: r.branch_id || null,
           organization: r.organization
         }));
-        setUserRoles(roles);
 
+      setUserRoles(validRoles);
+
+      if (validRoles.length > 0) {
         // Set first organization as current if none selected
         const savedOrgId = localStorage.getItem('currentOrganizationId');
-        const savedOrg = roles.find(r => r.organization.id === savedOrgId);
+        const savedOrg = validRoles.find(r => r.organization?.id === savedOrgId);
         
         if (savedOrg) {
           setCurrentOrganization(savedOrg.organization);
-        } else if (roles[0]?.organization) {
-          setCurrentOrganization(roles[0].organization);
-          localStorage.setItem('currentOrganizationId', roles[0].organization.id);
+        } else if (validRoles[0]?.organization) {
+          setCurrentOrganization(validRoles[0].organization);
+          localStorage.setItem('currentOrganizationId', validRoles[0].organization.id);
         }
       } else {
-        setUserRoles([]);
         setCurrentOrganization(null);
       }
     } catch (error) {

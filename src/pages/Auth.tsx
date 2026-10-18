@@ -4,13 +4,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Lock, Mail, User, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, User, Loader2, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import logo from "@/assets/logo.png";
 import { logAuthNav } from "@/lib/authNavLogger";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // SECURITY: Strong password policy for a financial system
 const passwordSchema = z
@@ -42,6 +49,9 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(initialMode !== 'signup');
   const [showPassword, setShowPassword] = useState(false);
   const [mfaState, setMfaState] = useState<{ required: boolean; factorId: string; code: string } | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   // SECURITY: Client-side brute force protection persisted across refreshes
   const MAX_ATTEMPTS = 5;
@@ -77,17 +87,55 @@ export default function Auth() {
   // strictly for new signups (handled explicitly in handleSubmit below).
   // Existing users who land on /auth while authenticated should always go
   // to their previous page or the dashboard. ProtectedRoute will handle
-  // any further redirection if they happen to have no organization yet.
   // Validate ?next= as a same-origin relative path so external OAuth
   // clients (MCP consent) get returned to the original consent URL.
   const rawNext = new URLSearchParams(location.search).get("next");
   const safeNext =
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : null;
 
+  // 1. Detect and notify on any OAuth errors in URL hash or search params
+  useEffect(() => {
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
+    const hashParams = new URLSearchParams(hash);
+    const searchParams = new URLSearchParams(window.location.search);
+
+    const error = hashParams.get('error') || searchParams.get('error');
+    const errorDescription = hashParams.get('error_description') || searchParams.get('error_description');
+
+    if (error || errorDescription) {
+      const decodedDescription = errorDescription ? decodeURIComponent(errorDescription.replace(/\+/g, ' ')) : '';
+      console.error("[AUTH_OAUTH_CALLBACK_ERROR]", error, decodedDescription);
+
+      let userMsg = "تعذر إتمام عملية تسجيل الدخول عبر Google.";
+      if (error === "unsupported_provider" || decodedDescription.includes("provider is not enabled")) {
+        userMsg = "خدمة تسجيل الدخول بـ Google غير مفعّلة مباشرة، يتم استخدام وسيط Lovable Auth.";
+      } else if (error === "access_denied") {
+        userMsg = "تم إلغاء عملية تسجيل الدخول.";
+      } else if (decodedDescription) {
+        userMsg = decodedDescription;
+      }
+
+      toast({
+        title: "تنبيه تسجيل الدخول",
+        description: userMsg,
+        variant: "destructive",
+      });
+
+      // Clear the error fragment from browser URL so it doesn't linger
+      if (window.history.replaceState) {
+        const cleanUrl = window.location.pathname + (safeNext ? `?next=${encodeURIComponent(safeNext)}` : '');
+        window.history.replaceState(null, '', cleanUrl);
+      }
+    }
+  }, [safeNext, toast]);
+
+  // 2. Redirect authenticated users cleanly
   useEffect(() => {
     if (user && !authLoading && userDataReady) {
       const from = (location.state as any)?.from?.pathname;
-      const to = safeNext || from || '/dashboard';
+      // If user has no organizations, route them straight to onboarding
+      const defaultRoute = userRoles.length === 0 ? '/onboarding' : '/dashboard';
+      const to = safeNext || (from && from !== '/auth' ? from : defaultRoute);
       if (to === '/dashboard') {
         logAuthNav('redirect_to_dashboard', {
           from: location.pathname + location.search,
@@ -198,7 +246,7 @@ export default function Auth() {
             } else {
               toast({
                 title: "خطأ في تسجيل الدخول",
-                description: `بيانات الاعتماد المدخلة غير صحيحة. المحاولة ${attempts}/${MAX_ATTEMPTS}`,
+                description: `بيانات الاعتماد المدخلة غير صحيحة (المحاولة ${attempts}/${MAX_ATTEMPTS}). إذا كنت قد سجلت عبر Google سابقاً، يرجى استخدام زر "تسجيل الدخول بـ Google".`,
                 variant: "destructive",
               });
             }
@@ -278,43 +326,41 @@ export default function Auth() {
     setIsLoading(true);
     try {
       // Must ALWAYS redirect back to /auth so Auth.tsx receives and validates the session,
-      // then immediately forwards the user to /dashboard (or /onboarding for new accounts).
+      // then forwards the user to /dashboard (or /onboarding for new accounts).
       const redirectTarget = safeNext
         ? `${window.location.origin}/auth?next=${encodeURIComponent(safeNext)}`
         : `${window.location.origin}/auth`;
 
       logAuthNav("google_signin_start", { redirectTarget });
 
-      // 1. Direct Supabase OAuth with full browser redirect (works seamlessly on 100% of mobile browsers)
-      const { error: sbOAuthError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: redirectTarget,
-        },
-      });
-
-      if (!sbOAuthError) {
-        // Full page redirect to Google initiated
-        return;
-      }
-
-      console.warn("Direct Supabase OAuth error, trying Lovable cloud auth fallback:", sbOAuthError);
-
-      // 2. Fallback to Lovable Cloud Auth if direct OAuth is not enabled
+      // 1. Primary: Lovable Cloud Auth broker (handles iframe popup + web_message as well as mobile/desktop redirect)
       const result = await lovable.auth.signInWithOAuth("google", {
         redirect_uri: redirectTarget,
       });
 
-      if (result.error) {
-        logAuthNav("google_signin_error", { meta: { message: result.error.message } });
-        toast({
-          title: "خطأ في تسجيل الدخول",
-          description: result.error.message || sbOAuthError?.message || "تعذر إتمام تسجيل الدخول عبر Google",
-          variant: "destructive",
-        });
+      if (result.redirected) {
+        return;
       }
 
-      if (result.redirected) {
+      if (result.error) {
+        // Fallback for self-hosted instances outside Lovable infrastructure
+        console.warn("Lovable cloud auth error, trying direct Supabase OAuth fallback:", result.error);
+
+        const { error: sbOAuthError } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: redirectTarget,
+          },
+        });
+
+        if (sbOAuthError) {
+          logAuthNav("google_signin_error", { meta: { message: sbOAuthError.message } });
+          toast({
+            title: "خطأ في تسجيل الدخول",
+            description: result.error.message || sbOAuthError.message || "تعذر إتمام تسجيل الدخول عبر Google",
+            variant: "destructive",
+          });
+        }
         return;
       }
 
@@ -322,7 +368,7 @@ export default function Auth() {
         logAuthNav("google_signin_success", {});
         toast({
           title: "تم تسجيل الدخول بنجاح",
-          description: "مرحباً بك",
+          description: "مرحباً بك في حساباتي",
         });
       }
     } catch (error: any) {
@@ -334,6 +380,39 @@ export default function Auth() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail || !resetEmail.includes("@")) {
+      toast({
+        title: "خطأ",
+        description: "يرجى إدخال بريد إلكتروني صحيح",
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsResettingPassword(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+      if (error) throw error;
+      toast({
+        title: "تم إرسال الرابط",
+        description: "يرجى مراجعة بريدك الإلكتروني لإعادة تعيين كلمة المرور.",
+      });
+      setShowForgotPassword(false);
+      setResetEmail("");
+    } catch (err: any) {
+      toast({
+        title: "تعذر إرسال الرابط",
+        description: err.message || "حدث خطأ أثناء محاولة إرسال رابط الاستعادة",
+        variant: "destructive",
+      });
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -556,9 +635,16 @@ export default function Auth() {
                   />
                   تذكرني
                 </label>
-                <a href="#" className="text-sm text-primary hover:underline">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetEmail(formData.email);
+                    setShowForgotPassword(true);
+                  }}
+                  className="text-sm text-primary hover:underline"
+                >
                   نسيت كلمة المرور؟
-                </a>
+                </button>
               </div>
             )}
 
@@ -641,6 +727,57 @@ export default function Auth() {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+        <DialogContent className="sm:max-w-md text-right" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold">استعادة كلمة المرور</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              أدخل بريدك الإلكتروني وسنرسل لك رابطاً لإعادة تعيين كلمة المرور الخاصة بحسابك.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleResetPassword} className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">البريد الإلكتروني</Label>
+              <div className="relative">
+                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  id="reset-email"
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="example@email.com"
+                  className="pr-11 h-12 bg-muted/50 border-border"
+                  dir="ltr"
+                  required
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowForgotPassword(false)}
+                disabled={isResettingPassword}
+              >
+                إلغاء
+              </Button>
+              <Button
+                type="submit"
+                disabled={isResettingPassword}
+                className="gradient-primary text-primary-foreground min-w-[120px]"
+              >
+                {isResettingPassword ? (
+                  <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                ) : (
+                  "إرسال الرابط"
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

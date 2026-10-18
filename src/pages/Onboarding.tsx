@@ -118,7 +118,7 @@ export default function Onboarding() {
         description: `مرحباً بك في ${formData.name}`,
       });
 
-      navigate('/');
+      navigate('/dashboard', { replace: true });
     } catch (error: any) {
       console.error('Error creating organization:', error);
       toast({
